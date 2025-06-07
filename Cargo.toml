@@ -1,0 +1,16 @@
+[package]
+name = "wasabi"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+# テスト用の設定
+[[bin]]
+name = "wasabi"
+path = "src/main.rs"
+test = false
+
+[lib]
+name = "wasabi"
+path = "src/lib.rs"
