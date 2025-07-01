@@ -78,6 +78,7 @@ pub fn hlt() {
 // -----------------------------------------
 // 15. パニックハンドラ
 // -----------------------------------------
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     exit_qemu(QemuExitCode::Fail);
