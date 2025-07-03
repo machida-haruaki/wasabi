@@ -154,6 +154,9 @@ fn round_up_to_nearest_pow2_test() {
 /// - `_reserved`: アンダースコアで始まる名前は「使用していない」ことを示す
 struct Header {
     next_header: Option<Box<Header>>,  // Option<T>: Some(T)またはNone
+    /// このブロックの総サイズ（Header自身のサイズ32バイトを含む）
+    /// 例：1024バイトのデータを割り当てた場合、size = 1024 + 32 = 1056
+    /// 計算式：size = 実際のデータサイズ + HEADER_SIZE
     size: usize,                       // usize: メモリサイズやインデックスに使用
     is_allocated: bool,                // bool: true/false
     _reserved: usize,                  // _で始まる名前: 未使用フィールド
@@ -199,13 +202,20 @@ impl Header {
     /// - `size`: 要求されるメモリサイズ
     /// - `align`: 要求されるアライメント
     ///
-    /// # 計算式の説明
-    /// `HEADER_SIZE * 2 + align`の理由：
-    /// - 1つ目のHEADER_SIZE: 割り当て領域用のHeader
-    /// - 2つ目のHEADER_SIZE: パディング領域用のHeader（必要な場合）
-    /// - align: アライメント調整で必要になる可能性のある追加スペース
+    /// # 前提条件
+    /// - `align`: 2の冪である必要がある
     ///
-    /// 注意: この計算は概算で、実際に必要なサイズより大きめに見積もっている
+    /// # 計算式の詳細説明
+    /// `size + HEADER_SIZE * 2 + align` の内訳:
+    /// - `size`: 実際の要求サイズ（2の冪に調整済み）
+    /// - `HEADER_SIZE`: 割り当て領域用のHeader（32バイト）
+    /// - `HEADER_SIZE`: パディング領域用のHeader（必要な場合、32バイト）
+    /// - `align`: アライメント調整で必要になる可能性のある最大追加スペース
+    ///
+    /// # なぜこの計算が必要か
+    /// - 最悪ケース: アライメント調整でalign-1バイトの無駄が発生する可能性
+    /// - 安全マージン: 概算で大きめに見積もることで確実な割り当てを保証
+    /// - Header領域: 管理情報を格納するための領域を確保
     fn can_provide(&self, size: usize, align: usize) -> bool {
         self.size >= size + HEADER_SIZE * 2 + align
     }
@@ -242,10 +252,22 @@ impl Header {
         Box::from_raw(addr as *mut Header)
     }
 
-    /// 割り当て済み領域のアドレスからHeaderを取得する
+    /// 割り当て済みデータ領域のアドレスからHeaderを取得する
+    ///
+    /// # パラメータ
+    /// - `addr`: ユーザーに返された割り当て済みデータ領域の先頭アドレス
+    ///           （Header + データの構造において、データ部分の開始位置）
+    ///
+    /// # メモリレイアウト
+    /// ```
+    /// |------ Header ------|----- ユーザーデータ -----|
+    /// ^                    ^
+    /// Header開始位置        addr（引数として渡される位置）
+    /// (addr - HEADER_SIZE)
+    /// ```
     ///
     /// # 安全性
-    /// - `addr`は有効な割り当て済みメモリの先頭アドレスである必要がある
+    /// - `addr`は有効な割り当て済みデータ領域の先頭アドレスである必要がある
     /// - `addr - HEADER_SIZE`の位置に有効なHeaderが存在する必要がある
     ///
     /// # 処理の流れ
@@ -261,6 +283,12 @@ impl Header {
     /// - `size`: 要求されるメモリサイズ
     /// - `align`: 要求されるアライメント（2の累乗である必要がある）
     ///
+    /// # 前提条件
+    /// - `size`: 0より大きい値（実際の要求サイズ）
+    /// - `align`: 2の冪である必要がある（1, 2, 4, 8, 16, 32, 64, ...）
+    ///   - Rustの std::alloc::Layout の仕様要件
+    ///   - ビット演算によるマスク処理の前提条件
+    ///
     /// # 戻り値
     /// - `Some(ptr)`: 割り当てに成功した場合、割り当てられたメモリの先頭ポインタ
     /// - `None`: 割り当てに失敗した場合（サイズ不足、既に割り当て済みなど）
@@ -269,9 +297,20 @@ impl Header {
     /// std::alloc::Layout のドキュメントより:
     /// > All layouts have an associated size and a power-of-two alignment.
     fn provide(&mut self, size: usize, align: usize) -> Option<*mut u8> {
-        // サイズを2の累乗に切り上げ、最小でもHEADER_SIZEにする
+        // 【サイズ調整処理】
+        // 目的: メモリ断片化を防ぎ、効率的なメモリ管理を実現
+        // 理由:
+        //   - 2の冪サイズにすることで、解放時の結合処理が効率化される
+        //   - キャッシュライン効率の向上（多くのCPUで32/64バイトキャッシュライン）
+        //   - 最小でもHEADER_SIZE確保により、Header配置領域を保証
         let size = max(round_up_to_nearest_pow2(size).ok()?, HEADER_SIZE);
-        // アライメントも最小でもHEADER_SIZEにする
+
+        // 【アライメント調整処理】
+        // 目的: 最小アライメント境界の保証
+        // 理由:
+        //   - HEADER_SIZEは32バイト（2^5）で、このアロケータの基本単位
+        //   - Headerとデータの両方が同じ境界に配置されることを保証
+        //   - CPUの効率的なメモリアクセスパターンに合わせる
         let align = max(align, HEADER_SIZE);
 
         // 既に割り当て済みか、要求を満たせない場合は失敗
@@ -303,9 +342,18 @@ impl Header {
             // 使用したサイズを追跡する変数
             let mut size_used = 0;
 
-            // アライメント要件を満たすアドレスを計算
-            // ブロックの終端から要求サイズ分戻って、アライメント境界に合わせる
-            // `& !(align - 1)` はアライメント境界への切り下げ処理
+            // 【アライメント境界へのアドレス計算】
+            // 前提: alignは2の冪（1, 2, 4, 8, 16, ...）
+            // 目的: 要求されたアライメント境界に正確に配置されたアドレスを計算
+            //
+            // 計算原理:
+            //   1. (self.end_addr() - size): ブロック終端から要求サイズ分戻る
+            //   2. align - 1: 2の冪-1は下位ビットがすべて1 (例: 8-1=7=0b111)
+            //   3. !(align - 1): ビット反転でマスクを作成 (例: !7=0b...11111000)
+            //   4. & !(align - 1): 下位ビットをクリアしてアライメント境界に切り下げ
+            //
+            // 例: align=8の場合
+            //   - 任意のアドレス 0x1C07 & 0b...11111000 = 0x1C00 (8の倍数)
             let allocated_addr = (self.end_addr() - size) & !(align - 1);
 
             // 割り当て領域用のHeaderを作成
@@ -318,6 +366,37 @@ impl Header {
             // 元の次のブロックへのリンクを引き継ぐ
             header_for_allocated.next_header = self.next_header.take();
 
+            // 【Padding発生条件の詳細解説】
+            //
+            // Paddingが発生するのは以下の条件が揃った場合のみ：
+            //
+            // 1. 基本条件：アライメント調整による切り下げが発生
+            //    - (self.end_addr() - size) がアライメント境界にない
+            //    - & !(align - 1) による切り下げで実際の配置位置が前方にずれる
+            //
+            // 2. 典型的なケース：
+            //    - アライメント >> 要求サイズ（例：1024バイトアライメント、100バイト要求）
+            //    - ブロック終端位置がアライメント境界と一致しない
+            //
+            // 3. 具体例：
+            //    ブロック: 0x1000-0x2000 (4096バイト)
+            //    要求: 128バイト、1024バイトアライメント
+            //
+            //    計算過程:
+            //    - end_addr - size = 0x2000 - 128 = 0x1F80
+            //    - アライメント調整: 0x1F80 & 0xFC00 = 0x1C00 (切り下げ発生!)
+            //    - allocated_addr = 0x1C00
+            //    - 割り当て終端 = 0x1C00 + 128 + 32 = 0x1CA0
+            //    - padding = 0x2000 - 0x1CA0 = 864バイト
+            //
+            // 4. Paddingが発生しないケース：
+            //    - (end_addr - size) が既にアライメント境界にある
+            //    - アライメントが小さい（HEADER_SIZE以下）
+            //    - 要求サイズがアライメントより大きい
+            //
+            // 5. 数学的条件：
+            //    padding発生 ⟺ (self.end_addr() - size) % align != 0
+            //
             // 割り当て領域の後に余りがある場合、パディング用のHeaderを作成
             if header_for_allocated.end_addr() != self.end_addr() {
                 let mut header_for_padding =
@@ -371,7 +450,53 @@ impl fmt::Debug for Header {
 ///
 /// # 構造
 /// - `first_header`: メモリブロックの連結リストの先頭へのポインタ
-/// - RefCellを使用して内部可変性を実現（マルチスレッド対応のため）
+/// - RefCellを使用して内部可変性を実現
+///
+/// # RefCell<T>について - なぜ必要なのか？
+///
+/// ## Rustの基本的な借用ルール
+/// - **不変参照（&T）**: 複数同時に存在可能だが、値を変更できない
+/// - **可変参照（&mut T）**: 1つだけ存在可能で、値を変更できる
+/// - これらのルールは**コンパイル時**にチェックされる
+///
+/// ## static変数の制約とアロケータの要求の矛盾
+/// ```rust
+/// // static変数は不変として扱われる
+/// static ALLOCATOR: FirstFitAllocator = ...;
+/// // ↓
+/// // ALLOCATORからは不変参照（&FirstFitAllocator）しか取得できない
+/// ```
+///
+/// しかし、アロケータは以下の操作で内部状態を変更する必要がある：
+/// - メモリ割り当て時：連結リスト（first_header）の更新
+/// - メモリ解放時：連結リストの更新
+/// - **不変参照しか持てないのに、内部状態を変更したい** ← 矛盾！
+///
+/// ## RefCell<T>による解決 - 内部可変性（Interior Mutability）
+///
+/// RefCell<T>は「**実行時借用チェック**」を提供する：
+/// - `borrow()` → 不変参照を取得（複数同時可能）
+/// - `borrow_mut()` → 可変参照を取得（1つだけ、実行時チェック）
+/// - 借用ルール違反があると**実行時にパニック**
+///
+/// ```rust
+/// // 不変参照しか持っていない状況
+/// fn some_method(&self) {  // &self は不変参照
+///     // RefCellを使って実行時に可変参照を取得！
+///     let mut header = self.first_header.borrow_mut();
+///     // これで内部状態を安全に変更できる
+/// }
+/// ```
+///
+/// ## なぜMutexではなくRefCellなのか？
+/// - **Mutex**: マルチスレッド用の重い同期プリミティブ、OSレベルの機能が必要
+/// - **RefCell**: シングルスレッド用の軽量な実行時チェック、OSカーネルに適している
+/// - この段階ではマルチスレッドは考慮していないため、RefCellで十分
+///
+/// ## 安全性の保証
+/// - コンパイル時チェック → 実行時チェックに変更
+/// - 借用ルールは依然として守られる（実行時にパニックで検出）
+/// - 生ポインタを使うよりも安全
 ///
 /// # First Fitアルゴリズムの動作
 /// 1. メモリ割り当て要求を受ける
@@ -380,6 +505,10 @@ impl fmt::Debug for Header {
 /// 4. そのブロックから必要な分だけ割り当てる
 /// 5. 残りは新しい空きブロックとして管理
 pub struct FirstFitAllocator {
+    /// メモリブロック連結リストの先頭
+    ///
+    /// RefCell<T>により、不変参照（&self）からでも
+    /// borrow_mut()で可変参照を取得して内部状態を変更可能
     first_header: RefCell<Option<Box<Header>>>,
 }
 
@@ -387,6 +516,63 @@ pub struct FirstFitAllocator {
 ///
 /// この宣言により、Rustの標準的なメモリ割り当て（Vec、Box、Stringなど）が
 /// すべてこのアロケータを使用するようになる
+///
+/// # RefCellの実際の使用例
+///
+/// ## static変数とRefCellの組み合わせ
+/// ```rust
+/// // static変数は不変として扱われる
+/// pub static ALLOCATOR: FirstFitAllocator = FirstFitAllocator {
+///     first_header: RefCell::new(None),  // ← RefCellで包む
+/// };
+/// ```
+///
+/// ## 実際の動作パターン
+/// 1. **Rustの標準ライブラリ（Vec、Box等）がメモリを要求**
+///    ```rust
+///    let vec = Vec::new();  // 内部でALLOCATOR.alloc()が呼ばれる
+///    ```
+///
+/// 2. **GlobalAllocトレイトのalloc()メソッドが呼ばれる**
+///    ```rust
+///    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+///        // &self は不変参照だが、内部状態を変更する必要がある
+///        self.alloc_with_options(layout)
+///    }
+///    ```
+///
+/// 3. **RefCellを使って実行時に可変参照を取得**
+///    ```rust
+///    pub fn alloc_with_options(&self, layout: Layout) -> *mut u8 {
+///        // RefCellの力で、不変参照から可変参照を取得！
+///        let mut header = self.first_header.borrow_mut();
+///        // これで連結リストを安全に変更できる
+///    }
+///    ```
+///
+/// ## RefCellなしだとどうなるか？
+/// ```rust
+/// // もしRefCellを使わない場合（コンパイルエラー）
+/// pub struct FirstFitAllocator {
+///     first_header: Option<Box<Header>>,  // RefCellなし
+/// }
+///
+/// impl FirstFitAllocator {
+///     pub fn alloc_with_options(&self, layout: Layout) -> *mut u8 {
+///         // ❌ コンパイルエラー！
+///         // &selfは不変参照なので、first_headerを変更できない
+///         self.first_header = Some(...);  // cannot assign to field
+///     }
+/// }
+/// ```
+///
+/// ## RefCellの安全性保証
+/// - **実行時チェック**: 借用ルール違反があると実行時にパニック
+/// - **デッドロック回避**: 同じスレッド内での再帰的な可変借用を検出
+/// - **メモリ安全性**: 生ポインタを使わずに内部可変性を実現
+///
+/// この仕組みにより、グローバルなstatic変数でありながら、
+/// 安全にメモリ管理の状態を変更できるアロケータが実現されています。
 #[global_allocator]
 pub static ALLOCATOR: FirstFitAllocator = FirstFitAllocator {
     first_header: RefCell::new(None),
@@ -451,11 +637,34 @@ impl FirstFitAllocator {
     /// 4. 見つからない場合は次のブロックへ
     /// 5. 全てのブロックを調べても見つからない場合はnull pointerを返す
     pub fn alloc_with_options(&self, layout: Layout) -> *mut u8 {
-        // RefCellから可変参照を取得
+        // 【RefCellの実際の使用例 - 内部可変性の実現】
+        //
+        // ここで重要なのは、このメソッドのシグネチャが `&self` であることです：
+        // - `&self` = 不変参照（通常は内部状態を変更できない）
+        // - しかし、RefCellを使うことで実行時に可変参照を取得可能
+        //
+        // 【ステップ1: RefCellから可変参照を借用】
         // borrow_mut(): RefCellから可変参照を借用（実行時チェック）
+        // - 成功: RefMut<Option<Box<Header>>>を返す
+        // - 失敗: 既に借用中の場合、実行時にパニック
         let mut header = self.first_header.borrow_mut();
-        // deref_mut(): 参照を外して内部の値にアクセス
+
+        // 【ステップ2: RefMutから内部の値にアクセス】
+        // deref_mut(): RefMut<T>からT（この場合Option<Box<Header>>）への可変参照を取得
+        // これにより、Option<Box<Header>>を直接操作できるようになる
         let mut header = header.deref_mut();
+
+        // 【RefCellの安全性チェック】
+        // この時点で以下がチェックされている：
+        // 1. 同じスレッド内で複数の可変借用がないか
+        // 2. 可変借用中に不変借用が発生していないか
+        // 3. 借用ルール違反があれば実行時にパニック
+        //
+        // 【なぜこの仕組みが必要か】
+        // - static ALLOCATOR は不変参照しか提供しない
+        // - しかしメモリ割り当てには内部状態（連結リスト）の変更が必要
+        // - RefCellにより、コンパイル時制約を実行時制約に変更
+        // - 結果：安全性を保ちながら内部可変性を実現
 
         // 連結リストを辿って適切なブロックを探す
         // loop: 無限ループ（breakで抜ける）
@@ -505,46 +714,147 @@ impl FirstFitAllocator {
         }
     }
 
-    /// メモリディスクリプタから空きブロックを追加する
+    /// UEFIメモリディスクリプタから空きブロックを連結リストに追加する
+    ///
+    /// # 概要
+    /// UEFIファームウェアから取得した個別のメモリ領域情報を、
+    /// First Fitアロケータが管理する空きブロック連結リストに追加する処理です。
+    /// この処理により、OSが使用可能なメモリ領域がアロケータの管理下に置かれます。
     ///
     /// # パラメータ
-    /// - `desc`: UEFIメモリディスクリプタ
+    /// - `desc`: UEFIメモリディスクリプタ（個別のメモリ領域情報）
+    ///   - `physical_start()`: メモリ領域の物理開始アドレス（64bit値）
+    ///   - `number_of_pages()`: ページ数（UEFIでは4KBページ単位で管理）
     ///
-    /// # 処理の流れ
-    /// 1. 物理アドレスとサイズを取得
-    /// 2. アドレス0を避けるための調整
-    /// 3. 新しいHeaderを作成して連結リストに追加
+    /// # 処理の詳細フロー
+    /// 1. **メモリ情報の取得と変換**: UEFIディスクリプタからアドレス・サイズを抽出
+    /// 2. **アドレス0回避処理**: Null Pointer問題を防ぐための安全性確保
+    /// 3. **小領域除外**: 管理効率を考慮した最小サイズフィルタリング
+    /// 4. **Header作成**: メモリ管理構造の構築
+    /// 5. **連結リスト挿入**: アロケータへの登録完了
+    ///
+    /// # メモリレイアウトの変化
+    /// ```
+    /// 【処理前】
+    /// ALLOCATOR.first_header → HeaderA → HeaderB → None
+    ///
+    /// 【処理後】
+    /// ALLOCATOR.first_header → 新Header → HeaderA → HeaderB → None
+    ///                          ^
+    ///                          新しく追加された領域
+    /// ```
+    ///
+    /// # 安全性とエラーハンドリング
+    /// - **Null Pointer回避**: アドレス0を含む領域の特別処理
+    /// - **アンダーフロー防止**: `saturating_sub()`による安全な算術演算
+    /// - **RefCell借用管理**: 実行時借用チェックによる安全な内部可変性
+    /// - **unsafe操作**: 生ポインタ操作の適切な管理
     fn add_free_from_descriptor(&self, desc: &EfiMemoryDescriptor) {
+        // 【ステップ1: メモリ情報の取得と変換】
+        // UEFIディスクリプタからの情報抽出
+        // - physical_start(): メモリ領域の物理開始アドレス（64bit値）
+        // - number_of_pages(): ページ数（UEFIでは4KBページ単位で管理）
+        // - * 4096: ページ数をバイト単位のサイズに変換
+        //
+        // 具体例:
+        // UEFIディスクリプタ: 
+        // - physical_start: 0x100000 (1MB)
+        // - number_of_pages: 512 (512ページ)
+        // → 変換後: start_addr = 0x100000, size = 512 * 4096 = 2MB
         let mut start_addr = desc.physical_start() as usize;
         let mut size = desc.number_of_pages() as usize * 4096; // ページサイズ（4KB）を掛ける
 
-        // アロケータがアドレス0を空き領域として含まないようにする
-        // アドレス0は特別な意味を持つため（null pointer）、避ける必要がある
+        // 【ステップ2: アドレス0の特別処理（Null Pointer回避）】
+        //
+        // なぜアドレス0を避けるのか:
+        // - **Null Pointer**: プログラミングにおいてアドレス0は「無効なポインタ」を示す特別な値
+        // - **メモリ安全性**: アロケータがアドレス0を返すと、有効なメモリとnullの区別ができなくなる
+        // - **デバッグ容易性**: null pointer accessによるクラッシュで問題を早期発見できる
+        //
+        // saturating_sub()の重要性:
+        // - 通常の減算: size = size - 4096  // size < 4096の場合パニック
+        // - saturating_sub(): 最小値0で止まる（安全、パニックしない）
         if start_addr == 0 {
             start_addr += 4096; // 1ページ分スキップ
             size = size.saturating_sub(4096); // サイズを調整（アンダーフローを防ぐ）
         }
 
-        // 小さすぎる領域は無視する（1ページ以下）
+        // 【ステップ3: 小さすぎる領域の除外】
+        //
+        // 除外理由:
+        // - **管理コスト**: 小さな領域は管理オーバーヘッドが大きい
+        // - **断片化防止**: 細かすぎるブロックは実用的でない
+        // - **Header領域**: 32バイトのHeaderを考慮すると、4KB以下では実質的な利用可能領域が少ない
         if size <= 4096 {
             return;
         }
 
-        // 新しいHeaderを作成
+        // 【ステップ4: 新しいHeaderの作成】
+        //
+        // Header::new_from_addr()の動作:
+        // 1. アドレスをHeader型のポインタにキャスト
+        // 2. デフォルト値でHeaderを初期化
+        // 3. Box::from_rawでBoxに包んで返す
+        //
+        // メモリレイアウト:
+        // start_addr → |------ Header (32B) ------|------ 利用可能領域 ------|
+        //              ^                          ^
+        //              Headerの位置                実際のデータ領域
+        //              (管理情報)                  (ユーザーが使用)
+        //
+        // unsafe使用理由:
+        // - **生ポインタ操作**: メモリアドレスを直接Headerとして扱う
+        // - **メモリ初期化**: 未初期化メモリに構造体を書き込む
+        // - **Box::from_raw()**: 既存メモリをRustの管理下に置く
         let mut header = unsafe { Header::new_from_addr(start_addr) };
         header.next_header = None;
         header.is_allocated = false;
         header.size = size;
 
-        // 連結リストの先頭に挿入
+        // 【ステップ5: 連結リストへの挿入処理】
+        //
+        // この処理は以下の4つのサブステップに分かれています:
+        // 1. RefCellからの借用
+        // 2. 先頭要素の置換
+        // 3. 借用の明示的解放
+        // 4. リンクの再構築
+
+        // サブステップ1: RefCellからの借用
+        // RefCell<Option<Box<Header>>>からRefMut<Option<Box<Header>>>を取得
+        // 実行時借用チェックにより、複数の可変借用を防止
         let mut first_header = self.first_header.borrow_mut();
+        
+        // サブステップ2: 先頭要素の置換
+        // Option::replace()の動作:
+        // - 現在の値（元の先頭）を取り出す
+        // - 新しい値（新しいheader）を設定
+        // - 元の値を返す
         let prev_last = first_header.replace(header); // 現在の先頭を取得
+        
+        // サブステップ3: 借用の明示的解放
+        // RefMutを明示的に解放（次の借用のため）
+        // drop()を呼ばないと、次のborrow_mut()でパニックが発生する可能性
         drop(first_header); // 借用を解放
 
-        // 新しい先頭の次に元の先頭をリンク
+        // サブステップ4: リンクの再構築
+        // 新しい先頭の次に、元の先頭をリンク
+        // これにより連結リスト構造が正しく維持される
         let mut header = self.first_header.borrow_mut();
         header.as_mut().unwrap().next_header = prev_last;
 
+        // 【重要な設計判断: なぜソートしないのか】
+        //
+        // 理由の詳細:
+        // - **物理的分離**: UEFIメモリマップの各領域は物理的に分離されている
+        // - **マージ不可**: 連続していない領域は結合できない
+        // - **検索効率**: First Fitアルゴリズムでは順序は重要でない（最初に見つかった適切なブロックを使用）
+        //
+        // メモリマップの典型例:
+        // 0x00000000-0x0009FFFF: CONVENTIONAL_MEMORY (640KB)
+        // 0x00100000-0x7FFFFFFF: CONVENTIONAL_MEMORY (2GB-1MB)  
+        // 0x90000000-0x9FFFFFFF: CONVENTIONAL_MEMORY (256MB)
+        // → 3つの分離された領域、物理的に結合不可
+        //
         // この時点でヘッダーがソートされていなくても問題ない
         // メモリマップに書かれている全ての領域は連続していないため、
         // どのみちマージできないから
