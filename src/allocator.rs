@@ -97,7 +97,6 @@ fn round_up_to_nearest_pow2_test() {
     assert_eq!(round_up_to_nearest_pow2(7), Ok(8));
     assert_eq!(round_up_to_nearest_pow2(8), Ok(8));
     assert_eq!(round_up_to_nearest_pow2(9), Ok(16));
-    assert_eq!(round_up_to_nearest_pow2(9), Ok(16));
 }
 
 /// メモリブロックの管理情報を格納するヘッダー構造体
@@ -187,7 +186,7 @@ const _: () = assert!(HEADER_SIZE.count_ones() == 1);
 /// - `pub const`: 公開定数の宣言
 /// - `unsafe { ... }`: 安全性チェックを無効化するブロック
 /// - `Layout::from_size_align_unchecked()`: チェックなしでLayoutを作成
-pub const LAYOUT_OAGE_4K: Layout = unsafe { Layout::from_size_align_unchecked(4096, 4096) };
+pub const LAYOUT_PAGE_4K: Layout = unsafe { Layout::from_size_align_unchecked(4096, 4096) };
 
 /// Header構造体のメソッド実装
 ///
@@ -354,7 +353,19 @@ impl Header {
             //
             // 例: align=8の場合
             //   - 任意のアドレス 0x1C07 & 0b...11111000 = 0x1C00 (8の倍数)
-            let allocated_addr = (self.end_addr() - size) & !(align - 1);
+            let end_addr = self.end_addr();
+            
+            // 安全性チェック: オーバーフロー/アンダーフローを防ぐ
+            if end_addr < size {
+                return None; // サイズが大きすぎる場合は失敗
+            }
+            
+            let allocated_addr = (end_addr - size) & !(align - 1);
+            
+            // 追加の安全性チェック: 計算結果が有効な範囲内かを確認
+            if allocated_addr < HEADER_SIZE || allocated_addr < self as *const Header as usize + HEADER_SIZE {
+                return None; // 無効なアドレスの場合は失敗
+            }
 
             // 割り当て領域用のHeaderを作成
             let mut header_for_allocated =
@@ -427,7 +438,10 @@ impl Drop for Header {
     /// Headerはメモリ上に直接配置されており、Rustの通常のドロップ処理で
     /// 解放されるべきではないため、パニックを発生させる
     fn drop(&mut self) {
-        panic!("Header should not be dropped");
+        panic!("Header should not be dropped! Address: {:#x}, Size: {:#x}, Allocated: {}",
+               self as *const Header as usize,
+               self.size,
+               self.is_allocated);
     }
 }
 
@@ -672,10 +686,7 @@ impl FirstFitAllocator {
             // match: パターンマッチング（Option<T>の値を分岐）
             match header {
                 // Some(e): Option<T>が値を持つ場合、eに値を束縛
-                Some(e) => {
-                    // 現在のブロックで割り当てを試行
-                    // ネストしたmatch: 内側のOption<T>もパターンマッチング
-                    match e.provide(layout.size(), layout.align()) {
+                Some(e) => match e.provide(layout.size(), layout.align()) {
                         Some(p) => break p, // 成功：ポインタを返してループを抜ける
                         None => {
                             // 失敗：次のブロックへ移動
@@ -683,8 +694,7 @@ impl FirstFitAllocator {
                             header = e.next_header.borrow_mut();
                             continue; // ループの先頭に戻る
                         }
-                    }
-                },
+                    },
                 // None: Option<T>が値を持たない場合（リストの終端）
                 None => {
                     // リストの終端に到達：割り当て失敗
@@ -750,6 +760,9 @@ impl FirstFitAllocator {
     /// - **RefCell借用管理**: 実行時借用チェックによる安全な内部可変性
     /// - **unsafe操作**: 生ポインタ操作の適切な管理
     fn add_free_from_descriptor(&self, desc: &EfiMemoryDescriptor) {
+        // デバッグ: 追加されるメモリ領域の情報を出力
+        // （一時的なデバッグ用）
+        
         // 【ステップ1: メモリ情報の取得と変換】
         // UEFIディスクリプタからの情報抽出
         // - physical_start(): メモリ領域の物理開始アドレス（64bit値）
@@ -757,7 +770,7 @@ impl FirstFitAllocator {
         // - * 4096: ページ数をバイト単位のサイズに変換
         //
         // 具体例:
-        // UEFIディスクリプタ: 
+        // UEFIディスクリプタ:
         // - physical_start: 0x100000 (1MB)
         // - number_of_pages: 512 (512ページ)
         // → 変換後: start_addr = 0x100000, size = 512 * 4096 = 2MB
@@ -823,14 +836,14 @@ impl FirstFitAllocator {
         // RefCell<Option<Box<Header>>>からRefMut<Option<Box<Header>>>を取得
         // 実行時借用チェックにより、複数の可変借用を防止
         let mut first_header = self.first_header.borrow_mut();
-        
+
         // サブステップ2: 先頭要素の置換
         // Option::replace()の動作:
         // - 現在の値（元の先頭）を取り出す
         // - 新しい値（新しいheader）を設定
         // - 元の値を返す
         let prev_last = first_header.replace(header); // 現在の先頭を取得
-        
+
         // サブステップ3: 借用の明示的解放
         // RefMutを明示的に解放（次の借用のため）
         // drop()を呼ばないと、次のborrow_mut()でパニックが発生する可能性
@@ -851,7 +864,7 @@ impl FirstFitAllocator {
         //
         // メモリマップの典型例:
         // 0x00000000-0x0009FFFF: CONVENTIONAL_MEMORY (640KB)
-        // 0x00100000-0x7FFFFFFF: CONVENTIONAL_MEMORY (2GB-1MB)  
+        // 0x00100000-0x7FFFFFFF: CONVENTIONAL_MEMORY (2GB-1MB)
         // 0x90000000-0x9FFFFFFF: CONVENTIONAL_MEMORY (256MB)
         // → 3つの分離された領域、物理的に結合不可
         //
@@ -945,6 +958,99 @@ mod test {
                 );
                 // このテストでは割り当てが成功することを前提とし、
                 // パニックが発生しないことで正常性を確認
+            }
+        }
+    }
+
+    #[test_case]
+    fn allocated_objects_have_no_overlap() {
+        let allocations = [
+            Layout::from_size_align(128, 128).unwrap(),
+            Layout::from_size_align(32, 32).unwrap(),
+            Layout::from_size_align(8, 8).unwrap(),
+            Layout::from_size_align(16, 16).unwrap(),
+            Layout::from_size_align(6000, 64).unwrap(),
+            Layout::from_size_align(4, 4).unwrap(),
+            Layout::from_size_align(2, 2).unwrap(),
+            Layout::from_size_align(600000, 64).unwrap(),
+            Layout::from_size_align(64, 64).unwrap(),
+            Layout::from_size_align(1, 1).unwrap(),
+            Layout::from_size_align(6000, 64).unwrap(),
+            Layout::from_size_align(6000, 64).unwrap(),
+            Layout::from_size_align(6000, 64).unwrap(),
+            Layout::from_size_align(6000, 64).unwrap(),
+            Layout::from_size_align(6000, 64).unwrap(),
+            Layout::from_size_align(6000, 64).unwrap(),
+            Layout::from_size_align(3, 64).unwrap(),
+            Layout::from_size_align(3, 64).unwrap(),
+            Layout::from_size_align(3, 64).unwrap(),
+            Layout::from_size_align(3, 64).unwrap(),
+            Layout::from_size_align(3, 64).unwrap(),
+            Layout::from_size_align(3, 64).unwrap(),
+            Layout::from_size_align(3, 64).unwrap(),
+            Layout::from_size_align(3, 64).unwrap(),
+            Layout::from_size_align(3, 64).unwrap(),
+            Layout::from_size_align(3, 64).unwrap(),
+            Layout::from_size_align(6000, 64).unwrap(),
+            Layout::from_size_align(6000, 64).unwrap(),
+            Layout::from_size_align(600000, 64).unwrap(),
+            Layout::from_size_align(6000, 64).unwrap(),
+            Layout::from_size_align(60000, 64).unwrap(),
+            Layout::from_size_align(60000, 64).unwrap(),
+            Layout::from_size_align(60000, 64).unwrap(),
+            Layout::from_size_align(60000, 64).unwrap(),
+        ];
+        let mut pointers = vec![null_mut::<u8>(); allocations.len()];
+        for e in allocations.iter().zip(pointers.iter_mut()).enumerate() {
+            let (i, (layout, pointer)) = e;
+            *pointer = ALLOCATOR.alloc_with_options(*layout);
+            for k in 0..layout.size() {
+                unsafe { *pointer.add(k) = i as u8 }
+            }
+        }
+        for e in allocations.iter().zip(pointers.iter_mut()).enumerate() {
+            let (i, (layout, pointer)) = e;
+            for k in 0..layout.size() {
+                assert!(unsafe { *pointer.add(k) } == i as u8);
+            }
+        }
+        for e in allocations
+            .iter()
+            .zip(pointers.iter_mut())
+            .enumerate()
+            .step_by(2)
+        {
+            let (_, (layout, pointer)) = e;
+            unsafe { ALLOCATOR.dealloc(*pointer, *layout) }
+        }
+        for e in allocations
+            .iter()
+            .zip(pointers.iter_mut())
+            .enumerate()
+            .skip(1)
+            .step_by(2)
+        {
+            let (i, (layout, pointer)) = e;
+            for k in 0..layout.size() {
+                assert!(unsafe { *pointer.add(k) } == i as u8);
+            }
+        }
+        for e in allocations
+            .iter()
+            .zip(pointers.iter_mut())
+            .enumerate()
+            .step_by(2)
+        {
+            let (i, (layout, pointer)) = e;
+            *pointer = ALLOCATOR.alloc_with_options(*layout);
+            for k in 0..layout.size() {
+                unsafe { *pointer.add(k) = i as u8 }
+            }
+        }
+        for e in allocations.iter().zip(pointers.iter_mut()).enumerate() {
+            let (i, (layout, pointer)) = e;
+            for k in 0..layout.size() {
+                assert!(unsafe { *pointer.add(k) } == i as u8);
             }
         }
     }
