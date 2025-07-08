@@ -1,1 +1,4 @@
 /target
+log/com1.txt
+mnt/EFI/BOOT/BOOTX64.EFI
+mnt/NvVars
