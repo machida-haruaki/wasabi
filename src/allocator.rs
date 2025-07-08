@@ -416,7 +416,8 @@ impl Header {
                 header_for_padding.size = self.end_addr() - header_for_allocated.end_addr();
                 size_used += header_for_padding.size;
 
-                // 割り当て領域の次にパディング領域をリンク
+                // 重要：パディングに連結リストを移してから、パディングを割り当て領域に接続
+                header_for_padding.next_header = header_for_allocated.next_header.take();
                 header_for_allocated.next_header = Some(header_for_padding);
             }
 
