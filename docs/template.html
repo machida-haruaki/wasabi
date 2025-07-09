@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{TITLE}} - WasabiOS 技術解説</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- ヘッダー -->
+        <header class="page-header">
+            <h1 class="page-title">{{ICON}} {{TITLE}}</h1>
+            <p class="page-subtitle">{{SUBTITLE}}</p>
+        </header>
+
+        <!-- パンくずリスト -->
+        <nav class="breadcrumb">
+            <a href="../index.html">🏠 ホーム</a>
+            <span>></span>
+            <a href="../index.html#{{CATEGORY}}">{{CATEGORY_NAME}}</a>
+            <span>></span>
+            <span>{{TITLE}}</span>
+        </nav>
+
+        <!-- プログレスバー -->
+        <div class="progress-container" style="margin-bottom: 20px;">
+            <div style="background: #404040; height: 4px; border-radius: 2px; overflow: hidden;">
+                <div id="progressBar" style="background: linear-gradient(45deg, #007acc, #4ec9b0); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+            </div>
+            <div style="text-align: center; margin-top: 5px; font-size: 0.9rem; color: #b3b3b3;">
+                進捗: <span id="progressText">0 / 0</span>
+            </div>
+        </div>
+
+        <!-- コントロール -->
+        <div class="controls">
+            <button id="startBtn">🚀 デモ開始</button>
+            <button id="nextBtn" disabled>➡️ 次のステップ</button>
+            <button id="resetBtn">🔄 リセット</button>
+        </div>
+
+        <!-- キーボードショートカット説明 -->
+        <div style="text-align: center; margin-bottom: 30px; font-size: 0.9rem; color: #b3b3b3;">
+            <p>⌨️ キーボード操作: <kbd>Space</kbd>/<kbd>→</kbd> 次へ | <kbd>←</kbd> 前へ | <kbd>R</kbd> リセット | <kbd>Esc</kbd> 終了</p>
+        </div>
+
+        <!-- メインコンテンツ -->
+        <main>
+            <!-- 導入ステップ（疑問提起・比喩） -->
+            <div id="step-intro" class="step">
+                <h2>🤔 {{OPENING_QUESTION_TITLE}}</h2>
+                <div class="question-section">
+                    <div class="question-box">
+                        <h3>💭 考えてみましょう</h3>
+                        <p class="opening-question">{{OPENING_QUESTION}}</p>
+                    </div>
+                    
+                    <div class="analogy-section">
+                        <h3>🌟 身近な例で考えると...</h3>
+                        <div class="analogy-box">
+                            {{ANALOGY}}
+                        </div>
+                    </div>
+                    
+                    <div class="why-needed-section">
+                        <h3>🎯 なぜこの技術が必要なのか</h3>
+                        <div class="why-needed-box">
+                            {{WHY_NEEDED}}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {{CONTENT}}
+        </main>
+
+        <!-- フッター -->
+        <footer class="page-footer">
+            <p>🍃 WasabiOS - {{TITLE}} の技術解説</p>
+            <p>実装ファイル: <code>{{RELATED_FILES}}</code></p>
+            <a href="../index.html" class="back-to-index">📚 インデックスに戻る</a>
+        </footer>
+    </div>
+
+    <script src="../assets/script.js"></script>
+    <script>
+        // ページ固有の処理
+        document.addEventListener('stepChanged', function(e) {
+            const step = e.detail.step;
+            
+            // ステップ固有の処理をここに追加
+            // {{STEP_SPECIFIC_JS}} でカスタム処理を追加
+        });
+
+        // {{CUSTOM_JS}} でカスタムJavaScriptを追加
+    </script>
+</body>
+</html>
