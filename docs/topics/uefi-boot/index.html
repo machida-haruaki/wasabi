@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UEFIブートプロセス - WasabiOS 技術解説</title>
+    <link rel="stylesheet" href="../../assets/style.css">
+    <style>
+        .boot-sequence {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #1e1e1e 0%, #2d2d30 100%);
+            border-radius: 12px;
+            border: 2px solid #404040;
+        }
+
+        .boot-phase {
+            flex: 1;
+            text-align: center;
+            padding: 15px;
+            margin: 0 5px;
+            border-radius: 8px;
+            background-color: #252526;
+            border: 2px solid #404040;
+            transition: all 0.5s ease;
+            opacity: 0.3;
+        }
+
+        .boot-phase.active {
+            opacity: 1;
+            border-color: #007acc;
+            background-color: #264f78;
+            transform: scale(1.05);
+        }
+
+        .boot-phase.completed {
+            opacity: 1;
+            border-color: #4ec9b0;
+            background-color: #1e3a32;
+        }
+
+        .phase-title {
+            font-weight: bold;
+            color: #569cd6;
+            margin-bottom: 8px;
+        }
+
+        .phase-description {
+            font-size: 0.9rem;
+            color: #d4d4d4;
+        }
+
+        .memory-map {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 2px;
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #1e1e1e;
+            border: 2px solid #569cd6;
+            border-radius: 8px;
+        }
+
+        .memory-block {
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            border: 1px solid #404040;
+            transition: all 0.3s ease;
+        }
+
+        .memory-reserved { background-color: #f44747; }
+        .memory-loader { background-color: #007acc; }
+        .memory-boot-services { background-color: #4ec9b0; }
+        .memory-runtime { background-color: #f9c74f; }
+        .memory-conventional { background-color: #6a9955; }
+        .memory-unusable { background-color: #404040; }
+
+        .uefi-architecture {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #1e1e1e;
+            border: 2px solid #569cd6;
+            border-radius: 12px;
+        }
+
+        .system-table {
+            background-color: #007acc;
+            color: white;
+            padding: 15px 30px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .services-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .service-box {
+            background-color: #4ec9b0;
+            color: #1e1e1e;
+            padding: 12px 20px;
+            border-radius: 6px;
+            font-weight: bold;
+        }
+
+        .protocols-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .protocol-box {
+            background-color: #f9c74f;
+            color: #1e1e1e;
+            padding: 8px 15px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background-color: #1e1e1e;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #404040;
+        }
+
+        .comparison-table th {
+            background-color: #007acc;
+            color: white;
+            font-weight: bold;
+        }
+
+        .comparison-table tr:nth-child(even) {
+            background-color: #252526;
+        }
+
+        .code-highlight {
+            background-color: #1e1e1e;
+            border: 1px solid #404040;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+
+        .rust-keyword { color: #569cd6; }
+        .rust-type { color: #4ec9b0; }
+        .rust-string { color: #ce9178; }
+        .rust-comment { color: #6a9955; }
+        .rust-number { color: #b5cea8; }
+
+        .highlight-line {
+            background-color: #264f78;
+            margin: 0 -15px;
+            padding: 0 15px;
+            border-left: 4px solid #007acc;
+        }
+
+        .step {
+            margin: 20px 0;
+            padding: 20px;
+            border-left: 4px solid #007acc;
+            background-color: #2d2d30;
+            border-radius: 0 8px 8px 0;
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .controls {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        button {
+            background-color: #007acc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 0 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #005a9e;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background-color: #404040;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .progress-container {
+            margin-bottom: 20px;
+        }
+
+        .progress-bar {
+            background: #404040;
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            background: linear-gradient(45deg, #007acc, #4ec9b0);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            text-align: center;
+            margin-top: 8px;
+            font-size: 0.9rem;
+            color: #b3b3b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- ヘッダー -->
+        <header class="page-header">
+            <h1 class="page-title">⚙️ UEFIブートプロセス</h1>
+            <p class="page-subtitle">コンピュータ起動の現代的な仕組みを理解する</p>
+        </header>
+
+        <!-- パンくずリスト -->
+        <nav class="breadcrumb">
+            <a href="../../index.html">🏠 ホーム</a>
+            <span>></span>
+            <a href="../../index.html#system">システム基盤</a>
+            <span>></span>
+            <span>UEFIブートプロセス</span>
+        </nav>
+
+        <!-- プログレスバー -->
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+            <div class="progress-text">
+                進捗: <span id="progressText">0 / 10</span>
+            </div>
+        </div>
+
+        <!-- コントロール -->
+        <div class="controls">
+            <button id="startBtn" onclick="startDemo()">🚀 デモ開始</button>
+            <button id="nextBtn" onclick="nextStep()" disabled>➡️ 次のステップ</button>
+            <button id="resetBtn" onclick="resetDemo()">🔄 リセット</button>
+        </div>
+
+        <!-- キーボードショートカット説明 -->
+        <div style="text-align: center; margin-bottom: 30px; font-size: 0.9rem; color: #b3b3b3;">
+            <p>⌨️ キーボード操作: <kbd>Space</kbd>/<kbd>→</kbd> 次へ | <kbd>←</kbd> 前へ | <kbd>R</kbd> リセット | <kbd>Esc</kbd> 終了</p>
+        </div>
+
+        <!-- メインコンテンツ -->
+        <main>
+            <!-- ステップ 0: 導入（疑問提起・比喩） -->
+            <div id="step0" class="step">
+                <h2>🤔 コンピュータの起動、その謎に迫る</h2>
+                <div class="question-section">
+                    <div class="question-box">
+                        <h3>💭 考えてみましょう</h3>
+                        <p class="opening-question">
+                            コンピュータの電源を入れた瞬間、メモリは完全に空っぽです。<br>
+                            プログラムを実行するにはメモリにコードを読み込む必要がありますが、<br>
+                            <strong>「メモリにプログラムを読み込むプログラム」は一体誰が、どこから読み込むのでしょうか？</strong>
+                        </p>
+                    </div>
+                    
+                    <div class="analogy-section">
+                        <h3>🌟 身近な例で考えると...</h3>
+                        <div class="analogy-box">
+                            <p>コンピュータの起動は、<strong>朝起きてから出社するまでの準備</strong>によく似ています：</p>
+                            
+                            <div class="analogy-steps">
+                                <div class="analogy-step">
+                                    <span class="step-icon">⏰</span>
+                                    <div class="step-title">目覚まし時計</div>
+                                    <div class="step-desc">電源投入</div>
+                                </div>
+                                <div class="analogy-step">
+                                    <span class="step-icon">🧠</span>
+                                    <div class="step-title">意識を取り戻す</div>
+                                    <div class="step-desc">CPU初期化</div>
+                                </div>
+                                <div class="analogy-step">
+                                    <span class="step-icon">👔</span>
+                                    <div class="step-title">身支度を整える</div>
+                                    <div class="step-desc">ハードウェア初期化</div>
+                                </div>
+                                <div class="analogy-step">
+                                    <span class="step-icon">🍳</span>
+                                    <div class="step-title">朝食を準備</div>
+                                    <div class="step-desc">ドライバ読み込み</div>
+                                </div>
+                                <div class="analogy-step">
+                                    <span class="step-icon">🚗</span>
+                                    <div class="step-title">出発準備完了</div>
+                                    <div class="step-desc">OS起動</div>
+                                </div>
+                            </div>
+                            
+                            <p>この一連の「起床から出社まで」を管理してくれる<strong>「朝の執事」</strong>のような存在、それがUEFIです。</p>
+                        </div>
+                    </div>
+                    
+                    <div class="why-needed-section">
+                        <h3>🎯 なぜこの技術が必要なのか</h3>
+                        <div class="why-needed-box">
+                            <ul>
+                                <li><strong>ブートストラップ問題の解決</strong>: 「最初のプログラムを読み込むプログラム」が必要</li>
+                                <li><strong>ハードウェアの多様性</strong>: 異なるメーカー・仕様のハードウェアを統一的に扱う</li>
+                                <li><strong>セキュリティの確保</strong>: 信頼できるソフトウェアのみを起動させる</li>
+                                <li><strong>効率的な初期化</strong>: 複雑な現代のハードウェアを適切な順序で初期化</li>
+                                <li><strong>OSの独立性</strong>: 特定のOSに依存しない標準的なインターフェース</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ステップ 1: 概要 -->
+            <div id="step1" class="step">
+                <h2>📋 UEFIとは何か</h2>
+                <p><strong>UEFI (Unified Extensible Firmware Interface)</strong> は、コンピュータの電源投入からOSの起動までを管理する現代的なファームウェア仕様です。</p>
+                
+                <div style="display: flex; gap: 20px; margin: 20px 0;">
+                    <div style="flex: 1; padding: 20px; background-color: #2d2d30; border-radius: 8px;">
+                        <h3 style="color: #f44747;">🏛️ 従来のBIOS</h3>
+                        <ul>
+                            <li>16ビットモードで動作</li>
+                            <li>1MBメモリ制限</li>
+                            <li>2TBディスク制限</li>
+                            <li>テキストベースUI</li>
+                            <li>拡張性に乏しい</li>
+                        </ul>
+                    </div>
+                    <div style="flex: 1; padding: 20px; background-color: #2d2d30; border-radius: 8px;">
+                        <h3 style="color: #4ec9b0;">⚡ 現代のUEFI</h3>
+                        <ul>
+                            <li>32/64ビットモードで動作</li>
+                            <li>大容量メモリ対応</li>
+                            <li>9ZB超ディスク対応</li>
+                            <li>グラフィカルUI</li>
+                            <li>モジュラー設計</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <p><strong>なぜUEFIが必要なのか？</strong></p>
+                <ul>
+                    <li>🔒 <strong>セキュリティ強化</strong>: Secure Boot、TPM連携</li>
+                    <li>🚀 <strong>高速起動</strong>: 並列初期化、最適化されたドライバ</li>
+                    <li>🔧 <strong>拡張性</strong>: プロトコルベースの設計</li>
+                    <li>🖥️ <strong>現代的UI</strong>: マウス操作、高解像度対応</li>
+                </ul>
+            </div>
+
+            <!-- ステップ 2: ブートプロセス概要 -->
+            <div id="step2" class="step">
+                <h2>🔄 UEFIブートプロセスの全体像</h2>
+                <p>UEFIブートプロセスは以下の5つの主要フェーズで構成されています：</p>
+
+                <div class="boot-sequence" id="bootSequence">
+                    <div class="boot-phase" id="phase-sec">
+                        <div class="phase-title">SEC</div>
+                        <div class="phase-description">Security<br>セキュリティ検証</div>
+                    </div>
+                    <div class="boot-phase" id="phase-pei">
+                        <div class="phase-title">PEI</div>
+                        <div class="phase-description">Pre-EFI Init<br>基本初期化</div>
+                    </div>
+                    <div class="boot-phase" id="phase-dxe">
+                        <div class="phase-title">DXE</div>
+                        <div class="phase-description">Driver Exec<br>ドライバ実行</div>
+                    </div>
+                    <div class="boot-phase" id="phase-bds">
+                        <div class="phase-title">BDS</div>
+                        <div class="phase-description">Boot Device<br>起動デバイス選択</div>
+                    </div>
+                    <div class="boot-phase" id="phase-rt">
+                        <div class="phase-title">RT</div>
+                        <div class="phase-description">Runtime<br>OS実行時</div>
+                    </div>
+                </div>
+
+                <p>各フェーズは特定の役割を持ち、段階的にシステムを初期化していきます。</p>
+            </div>
+
+            <!-- ステップ 3: UEFIアーキテクチャ -->
+            <div id="step3" class="step">
+                <h2>🏗️ UEFIアーキテクチャ</h2>
+                <p>UEFIは階層化されたアーキテクチャを持ち、システムテーブルを中心とした構造になっています：</p>
+
+                <div class="uefi-architecture">
+                    <div class="system-table">EFI System Table</div>
+                    
+                    <div class="services-row">
+                        <div class="service-box">Boot Services</div>
+                        <div class="service-box">Runtime Services</div>
+                    </div>
+                    
+                    <div class="protocols-row">
+                        <div class="protocol-box">Graphics Output</div>
+                        <div class="protocol-box">Block I/O</div>
+                        <div class="protocol-box">File System</div>
+                        <div class="protocol-box">Network</div>
+                        <div class="protocol-box">USB</div>
+                    </div>
+                </div>
+
+                <div class="code-highlight">
+<span class="rust-comment">// WasabiOSでのEFIシステムテーブル定義</span>
+<span class="rust-keyword">#[repr(C)]</span>
+<span class="rust-keyword">pub struct</span> <span class="rust-type">EfiSystemTable</span> {
+    <span class="rust-comment">// ヘッダー情報（省略）</span>
+    _reserved0: [<span class="rust-type">u64</span>; <span class="rust-number">12</span>],
+    <span class="rust-keyword">pub</span> boot_services: &<span class="rust-keyword">'static</span> <span class="rust-type">EfiBootServicesTable</span>,
+}
+                </div>
+            </div>
+
+            <!-- ステップ 4: メモリマップ -->
+            <div id="step4" class="step">
+                <h2>🧠 メモリマップの取得</h2>
+                <p>UEFIはシステムのメモリ構成を詳細に管理し、OSに正確な情報を提供します：</p>
+
+                <div class="memory-map" id="memoryMap">
+                    <!-- JavaScriptで動的生成 -->
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0;">
+                    <div style="display: flex; align-items: center;">
+                        <div class="memory-block memory-reserved" style="width: 20px; height: 20px; margin-right: 8px;"></div>
+                        <span>Reserved</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div class="memory-block memory-loader" style="width: 20px; height: 20px; margin-right: 8px;"></div>
+                        <span>Loader Code/Data</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div class="memory-block memory-boot-services" style="width: 20px; height: 20px; margin-right: 8px;"></div>
+                        <span>Boot Services</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div class="memory-block memory-runtime" style="width: 20px; height: 20px; margin-right: 8px;"></div>
+                        <span>Runtime Services</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div class="memory-block memory-conventional" style="width: 20px; height: 20px; margin-right: 8px;"></div>
+                        <span>Conventional</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div class="memory-block memory-unusable" style="width: 20px; height: 20px; margin-right: 8px;"></div>
+                        <span>Unusable</span>
+                    </div>
+                </div>
+
+                <div class="code-highlight">
+<span class="rust-comment">// メモリマップ取得の実装</span>
+<span class="rust-keyword">impl</span> <span class="rust-type">EfiBootServicesTable</span> {
+    <span class="rust-keyword">pub fn</span> get_memory_map(&<span class="rust-keyword">self</span>, map: &<span class="rust-keyword">mut</span> <span class="rust-type">MemoryMapHolder</span>) -> <span class="rust-type">EfiStatus</span> {
+        <div class="highlight-line">        (<span class="rust-keyword">self</span>.get_memory_map)(</div>
+        <div class="highlight-line">            &<span class="rust-keyword">mut</span> map.memory_map_size,</div>
+        <div class="highlight-line">            map.memory_map_buffer.as_mut_ptr(),</div>
+        <div class="highlight-line">            &<span class="rust-keyword">mut</span> map.map_key,</div>
+        <div class="highlight-line">            &<span class="rust-keyword">mut</span> map.descriptor_size,</div>
+        <div class="highlight-line">            &<span class="rust-keyword">mut</span> map.descriptor_version,</div>
+        <div class="highlight-line">        )</div>
+    }
+}
+                </div>
+            </div>
+
+            <!-- ステップ 5: グラフィックス初期化 -->
+            <div id="step5" class="step">
+                <h2>🎨 グラフィックス出力プロトコル</h2>
+                <p>UEFIはグラフィックス出力プロトコルを通じて、高解像度ディスプレイへの描画機能を提供します：</p>
+
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>項目</th>
+                            <th>BIOS VGA</th>
+                            <th>UEFI GOP</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>解像度</td>
+                            <td>640x480, 800x600</td>
+                            <td>任意の高解像度</td>
+                        </tr>
+                        <tr>
+                            <td>色深度</td>
+                            <td>4bit, 8bit</td>
+                            <td>32bit (RGBA)</td>
+                        </tr>
+                        <tr>
+                            <td>アクセス方法</td>
+                            <td>INT 10h割り込み</td>
+                            <td>プロトコル関数</td>
+                        </tr>
+                        <tr>
+                            <td>フレームバッファ</td>
+                            <td>セグメント化</td>
+                            <td>リニアアドレス</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="code-highlight">
+<span class="rust-comment">// グラフィックス出力プロトコルの取得</span>
+<span class="rust-keyword">fn</span> locate_graphic_protocol(
+    efi_system_table: &<span class="rust-type">EfiSystemTable</span>,
+) -> <span class="rust-type">Result</span>&lt;&<span class="rust-type">EfiGraphicsOutputProtocol</span>&gt; {
+    <span class="rust-keyword">let mut</span> graphic_output_protocol = null_mut();
+    <div class="highlight-line">    <span class="rust-keyword">let</span> status = (efi_system_table.boot_services.locate_protocol)(</div>
+    <div class="highlight-line">        &<span class="rust-type">EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID</span>,</div>
+    <div class="highlight-line">        null_mut(),</div>
+    <div class="highlight-line">        &<span class="rust-keyword">mut</span> graphic_output_protocol <span class="rust-keyword">as</span> *<span class="rust-keyword">mut</span> _ <span class="rust-keyword">as</span> *<span class="rust-keyword">mut</span> *<span class="rust-keyword">mut</span> <span class="rust-type">EfiVoid</span>,</div>
+    <div class="highlight-line">    );</div>
+    <span class="rust-comment">// ...</span>
+}
+                </div>
+            </div>
+
+            <!-- ステップ 6: VRAM初期化 -->
+            <div id="step6" class="step">
+                <h2>🖥️ VRAM初期化とテキスト描画</h2>
+                <p>取得したグラフィックスプロトコルを使用して、VRAMを初期化し描画機能を実装します：</p>
+
+                <div class="code-highlight">
+<span class="rust-comment">// VRAM情報構造体</span>
+<span class="rust-keyword">#[derive(Clone, Copy)]</span>
+<span class="rust-keyword">pub struct</span> <span class="rust-type">VramBufferInfo</span> {
+    buf: *<span class="rust-keyword">mut</span> <span class="rust-type">u8</span>,
+    width: <span class="rust-type">i64</span>,
+    height: <span class="rust-type">i64</span>,
+    pixels_per_line: <span class="rust-type">i64</span>,
+}
+
+<span class="rust-comment">// VRAM初期化関数</span>
+<span class="rust-keyword">pub fn</span> init_vram(efi_system_table: &<span class="rust-type">EfiSystemTable</span>) -> <span class="rust-type">Result</span>&lt;<span class="rust-type">VramBufferInfo</span>&gt; {
+    <span class="rust-keyword">let</span> gp = locate_graphic_protocol(efi_system_table)?;
+    <div class="highlight-line">    <span class="rust-type">Ok</span>(<span class="rust-type">VramBufferInfo</span> {</div>
+    <div class="highlight-line">        buf: gp.mode.frame_buffer_base <span class="rust-keyword">as</span> *<span class="rust-keyword">mut</span> <span class="rust-type">u8</span>,</div>
+    <div class="highlight-line">        width: gp.mode.info.horizontal_resolution <span class="rust-keyword">as</span> <span class="rust-type">i64</span>,</div>
+    <div class="highlight-line">        height: gp.mode.info.vertical_resolution <span class="rust-keyword">as</span> <span class="rust-type">i64</span>,</div>
+    <div class="highlight-line">        pixels_per_line: gp.mode.info.pixels_per_scan_line <span class="rust-keyword">as</span> <span class="rust-type">i64</span>,</div>
+    <div class="highlight-line">    })</div>
+}
+                </div>
+
+                <p><strong>VRAMテキストライター</strong>の実装により、フォーマット済み文字列の描画が可能になります：</p>
+
+                <div class="code-highlight">
+<span class="rust-keyword">impl</span> fmt::<span class="rust-type">Write</span> <span class="rust-keyword">for</span> <span class="rust-type">VramTextWriter</span>&lt;<span class="rust-keyword">'_</span>&gt; {
+    <span class="rust-keyword">fn</span> write_str(&<span class="rust-keyword">mut self</span>, s: &<span class="rust-type">str</span>) -> fmt::<span class="rust-type">Result</span> {
+        <span class="rust-keyword">for</span> c <span class="rust-keyword">in</span> s.chars() {
+            <span class="rust-keyword">if</span> c == <span class="rust-string">'\n'</span> {
+                <span class="rust-keyword">self</span>.cursor_y += <span class="rust-number">16</span>;
+                <span class="rust-keyword">self</span>.cursor_x = <span class="rust-number">0</span>;
+                <span class="rust-keyword">continue</span>;
+            }
+            <div class="highlight-line">            draw_font_fg(<span class="rust-keyword">self</span>.vram, <span class="rust-keyword">self</span>.cursor_x, <span class="rust-keyword">self</span>.cursor_y, <span class="rust-number">0xffffff</span>, c);</div>
+            <span class="rust-keyword">self</span>.cursor_x += <span class="rust-number">8</span>;
+        }
+        <span class="rust-type">Ok</span>(())
+    }
+}
+                </div>
+            </div>
+
+            <!-- ステップ 7: ブートサービス終了 -->
+            <div id="step7" class="step">
+                <h2>🚪 ブートサービスからの離脱</h2>
+                <p>OSが制御を取得する前に、UEFIブートサービスを終了する必要があります：</p>
+
+                <div style="background-color: #2d2d30; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <h3 style="color: #f9c74f;">⚠️ 重要なポイント</h3>
+                    <ul>
+                        <li><strong>メモリマップの取得</strong>: 最新の状態を確認</li>
+                        <li><strong>ExitBootServices呼び出し</strong>: ブートサービス終了</li>
+                        <li><strong>失敗時の再試行</strong>: メモリ状態変化への対応</li>
+                        <li><strong>ランタイムサービス</strong>: 継続利用可能</li>
+                    </ul>
+                </div>
+
+                <div class="code-highlight">
+<span class="rust-comment">// ブートサービス終了処理</span>
+<span class="rust-keyword">pub fn</span> exit_from_efi_boot_services(
+    image_handle: <span class="rust-type">EfiHandle</span>,
+    efi_system_table: &<span class="rust-type">EfiSystemTable</span>,
+    memory_map: &<span class="rust-keyword">mut</span> <span class="rust-type">MemoryMapHolder</span>,
+) {
+    <div class="highlight-line">    <span class="rust-keyword">loop</span> {</div>
+        <span class="rust-comment">// 最新のメモリマップを取得</span>
+        <div class="highlight-line">        <span class="rust-keyword">let</span> status = efi_system_table.boot_services.get_memory_map(memory_map);</div>
+        <div class="highlight-line">        assert_eq!(status, <span class="rust-type">EfiStatus</span>::Success);</div>
+        
+        <span class="rust-comment">// ブートサービス終了を試行</span>
+        <div class="highlight-line">        <span class="rust-keyword">let</span> status = (efi_system_table.boot_services.exit_boot_services)(</div>
+        <div class="highlight-line">            image_handle,</div>
+        <div class="highlight-line">            memory_map.map_key</div>
+        <div class="highlight-line">        );</div>
+        
+        <span class="rust-keyword">if</span> status == <span class="rust-type">EfiStatus</span>::Success {
+            <span class="rust-keyword">break</span>;
+        }
+        <span class="rust-comment">// 失敗した場合は再試行（メモリマップが変更された可能性）</span>
+    }
+}
+                </div>
+            </div>
+
+            <!-- ステップ 8: 実装での流れ -->
+            <div id="step8" class="step">
+                <h2>🔧 WasabiOSでの実装の流れ</h2>
+                <p>実際のWasabiOSでは、以下の順序でUEFI機能を活用しています：</p>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                    <div style="background-color: #2d2d30; padding: 20px; border-radius: 8px;">
+                        <h3 style="color: #4ec9b0;">📝 初期化段階</h3>
+                        <ol>
+                            <li><strong>システムテーブル取得</strong><br>
+                                <code>EfiSystemTable</code>からブートサービスにアクセス</li>
+                            <li><strong>グラフィックス初期化</strong><br>
+                                <code>init_vram()</code>でVRAM情報を取得</li>
+                            <li><strong>メモリマップ取得</strong><br>
+                                システムメモリ構成を把握</li>
+                        </ol>
+                    </div>
+                    <div style="background-color: #2d2d30; padding: 20px; border-radius: 8px;">
+                        <h3 style="color: #f9c74f;">🚀 OS起動段階</h3>
+                        <ol>
+                            <li><strong>必要な初期化完了</strong><br>
+                                フォントシステム、描画機能など</li>
+                            <li><strong>ブートサービス終了</strong><br>
+                                <code>exit_from_efi_boot_services()</code></li>
+                            <li><strong>OS本体実行</strong><br>
+                                独自のメモリ管理、タスク管理へ</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <p><strong>重要な設計判断：</strong></p>
+                <ul>
+                    <li>🎯 <strong>最小限のUEFI依存</strong>: 必要な機能のみ使用</li>
+                    <li>🔒 <strong>安全な型定義</strong>: Rustの型システムでUEFI構造体を表現</li>
+                    <li>⚡ <strong>効率的なメモリ管理</strong>: UEFIメモリマップを活用</li>
+                    <li>🖥️ <strong>直接VRAM操作</strong>: 高速な描画処理</li>
+                </ul>
+            </div>
+
+            <!-- ステップ 9: まとめ -->
+            <div id="step9" class="step">
+                <h2>🎯 まとめ</h2>
+                <p>UEFIブートプロセスは現代のコンピュータシステムの基盤となる重要な技術です。</p>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                    <div style="background-color: #1e3a32; padding: 20px; border-radius: 8px; border: 2px solid #4ec9b0;">
+                        <h3 style="color: #4ec9b0;">✅ UEFIの利点</h3>
+                        <ul>
+                            <li><strong>モダンなアーキテクチャ</strong><br>64ビット、大容量対応</li>
+                            <li><strong>豊富なプロトコル</strong><br>グラフィックス、ネットワーク等</li>
+                            <li><strong>セキュリティ機能</strong><br>Secure Boot、TPM連携</li>
+                            <li><strong>開発効率</strong><br>標準化されたAPI</li>
+                        </ul>
+                    </div>
+                    <div style="background-color: #3a1e1e; padding: 20px; border-radius: 8px; border: 2px solid #f44747;">
+                        <h3 style="color: #f44747;">⚠️ 注意点</h3>
+                        <ul>
+                            <li><strong>複雑性</strong><br>BIOSより学習コストが高い</li>
+                            <li><strong>実装依存</strong><br>ベンダー固有の動作</li>
+                            <li><strong>デバッグ困難</strong><br>低レベルでの問題解析</li>
+                            <li><strong>互換性</strong><br>レガシーシステムとの差異</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div style="background-color: #264f78; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #007acc;">
+                    <h3 style="color: #569cd6;">🔍 学習のポイント</h3>
+                    <p>UEFIを理解することで、以下の知識が身につきます：</p>
+                    <ul>
+                        <li><strong>システム起動の仕組み</strong>: ハードウェアからOSまでの流れ</li>
+                        <li><strong>メモリ管理の基礎</strong>: 物理メモリの構成と管理</li>
+                        <li><strong>ハードウェア抽象化</strong>: プロトコルベースの設計</li>
+                        <li><strong>低レベルプログラミング</strong>: ファームウェアレベルの実装</li>
+                    </ul>
+                </div>
+
+                <p style="text-align: center; font-size: 1.2rem; color: #4ec9b0; margin-top: 30px;">
+                    <strong>🍃 WasabiOSでは、これらのUEFI機能を活用して<br>
+                    効率的で安全なOS実装を目指しています！</strong>
+                </p>
+            </div>
+        </main>
+
+        <!-- フッター -->
+        <footer class="page-footer">
+            <p>🍃 WasabiOS - UEFIブートプロセス の技術解説</p>
+            <p>実装ファイル: <code>src/uefi.rs</code></p>
+            <a href="../../index.html" class="back-to-index">📚 インデックスに戻る</a>
+        </footer>
+    </div>
+
+    <script src="../../assets/script.js"></script>
+    <script>
+        let currentStep = -1;
+        const totalSteps = 9;
+
+        function startDemo() {
+            currentStep = 0;
+            document.getElementById('nextBtn').disabled = false;
+            showStep(currentStep);
+            updateProgress();
+        }
+
+        function nextStep() {
+            if (currentStep < totalSteps) {
+                currentStep++;
+                showStep(currentStep);
+                updateProgress();
+            }
+            
+            if (currentStep >= totalSteps) {
+                document.getElementById('nextBtn').disabled = true;
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 0) {
+                currentStep--;
+                showStep(currentStep);
+                updateProgress();
+                document.getElementById('nextBtn').disabled = false;
+            }
+        }
+
+        function showStep(step) {
+            // Hide all steps
+            for (let i = 0; i <= totalSteps; i++) {
+                const stepElement = document.getElementById(`step${i}`);
+                if (stepElement) {
+                    stepElement.classList.remove('active');
+                }
+            }
+            
+            // Show current step
+            const currentStepElement = document.getElementById(`step${step}`);
+            if (currentStepElement) {
+                currentStepElement.classList.add('active');
+            }
+            
+            // Special animations for specific steps
+            if (step === 1) {
+                animateBootSequence();
+            } else if (step === 3) {
+                generateMemoryMap();
+            }
+        }
+
+        function resetDemo() {
+            currentStep = -1;
+            document.getElementById('nextBtn').disabled = true;
+            
+            for (let i = 0; i <= totalSteps; i++) {
+                const stepElement = document.getElementById(`step${i}`);
+                if (stepElement) {
+                    stepElement.classList.remove('active');
+                }
+            }
+            
+            // Reset boot sequence animation
+            const phases = ['sec', 'pei', 'dxe', 'bds', 'rt'];
+            phases.forEach(phase => {
+                const element = document.getElementById(`phase-${phase}`);
+                if (element) {
+                    element.classList.remove('active', 'completed');
+                }
+            });
+            
+            updateProgress();
+        }
+
+        function updateProgress() {
+            const progress = currentStep >= 0 ? ((currentStep + 1) / (totalSteps + 1)) * 100 : 0;
+            document.getElementById('progressFill').style.width = `${progress}%`;
+            document.getElementById('progressText').textContent = `${Math.max(0, currentStep + 1)} / ${totalSteps + 1}`;
+        }
+
+        function animateBootSequence() {
+            const phases = ['sec', 'pei', 'dxe', 'bds', 'rt'];
+            let currentPhase = 0;
+            
+            function activateNextPhase() {
+                if (currentPhase < phases.length) {
+                    const element = document.getElementById(`phase-${phases[currentPhase]}`);
+                    if (element) {
+                        element.classList.add('active');
+                        
+                        setTimeout(() => {
+                            element.classList.remove('active');
+                            element.classList.add('completed');
+                            currentPhase++;
+                            activateNextPhase();
+                        }, 1000);
+                    }
+                }
+            }
+            
+            // Reset all phases first
+            phases.forEach(phase => {
+                const element = document.getElementById(`phase-${phase}`);
+                if (element) {
+                    element.classList.remove('active', 'completed');
+                }
+            });
+            
+            // Start animation
+            setTimeout(activateNextPhase, 500);
+        }
+
+        function generateMemoryMap() {
+            const container = document.getElementById('memoryMap');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            // Simulate memory map with different types
+            const memoryTypes = [
+                { type: 'memory-reserved', count: 4 },
+                { type: 'memory-loader', count: 8 },
+                { type: 'memory-boot-services', count: 12 },
+                { type: 'memory-conventional', count: 20 },
+                { type: 'memory-runtime', count: 6 },
+                { type: 'memory-unusable', count: 2 }
+            ];
+            
+            let blocks = [];
+            memoryTypes.forEach(({ type, count }) => {
+                for (let i = 0; i < count; i++) {
+                    blocks.push(type);
+                }
+            });
+            
+            // Shuffle for realistic distribution
+            for (let i = blocks.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
+            }
+            
+            // Create memory blocks
+            blocks.forEach((type, index) => {
+                const block = document.createElement('div');
+                block.className = `memory-block ${type}`;
+                block.textContent = (index + 1).toString(16).toUpperCase();
+                block.title = `Memory Block ${index + 1}`;
+                container.appendChild(block);
+            });
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowRight' || e.key === ' ') {
+                e.preventDefault();
+                if (currentStep === -1) {
+                    startDemo();
+                } else if (currentStep < totalSteps) {
+                    nextStep();
+                }
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                if (currentStep > 0) {
+                    prevStep();
+                }
+            } else if (e.key === 'r' || e.key === 'R') {
+                e.preventDefault();
+                resetDemo();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                resetDemo();
+            }
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            updateProgress();
+        });
+
+        // Page-specific step handling
+        document.addEventListener('stepChanged', function(e) {
+            const step = e.detail.step;
+            
+            if (step === 1) {
+                animateBootSequence();
+            } else if (step === 3) {
+                generateMemoryMap();
+            }
+        });
+    </script>
+</body>
+</html>

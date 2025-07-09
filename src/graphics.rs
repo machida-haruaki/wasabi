@@ -117,29 +117,99 @@ fn draw_line<T: Bitmap>(buf: &mut T, color: u32, x0: i64, y0: i64, x1: i64, y1: 
 }
 
 fn lookup_font(c: char) -> Option<[[char; 8]; 16]> {
+    // コンパイル時にfont.txtの内容を文字列として埋め込む
     const FONT_SOURCE: &str = include_str!("./font.txt");
+
+    // 静的な可変変数でフォントキャッシュを宣言
+    // Option<T>: Rustの標準ライブラリで定義されている列挙型
+    //   enum Option<T> {
+    //       None,        // 値が存在しない
+    //       Some(T),     // 値Tが存在する
+    //   }
+    // [[[char; 8]; 16]; 256]: 3次元配列の型
+    //   - 最外層[256]: ASCII文字256文字分のスロット
+    //   - 中間層[16]: 各文字の高さ16ピクセル分の行
+    //   - 最内層[8]: 各行の幅8文字分
+    // static mut: プログラム全体で共有される可変なグローバル変数
+    // = None: 初期値としてNone（未初期化状態）を設定
+    static mut FONT_CACHE: Option<[[[char; 8]; 16]; 256]> = None;
+
+    // char型をu8型に変換を試行（ASCII範囲内かチェック）
+    // try_from: 失敗する可能性のある型変換（Result<u8, Error>を返す）
+    // if let Ok(c): 変換が成功した場合のみ処理を続行
     if let Ok(c) = u8::try_from(c) {
-        let mut fi = FONT_SOURCE.split('\n');
-        while let Some(line) = fi.next() {
-            if let Some(line) = line.strip_prefix("0x") {
-                if let Ok(idx) = u8::from_str_radix(line, 16) {
-                    if idx != c {
-                        continue;
-                    }
-                    let mut font = [['*'; 8]; 16];
-                    for (y, line) in fi.clone().take(16).enumerate() {
-                        for (x, c) in line.chars().enumerate() {
-                            if let Some(e) = font[y].get_mut(x) {
-                                *e = c;
+        // unsafeブロック: static mut変数へのアクセスには必要
+        // Rustは複数スレッドからの同時アクセスを防げないため、開発者が安全性を保証する必要がある
+        let font = unsafe {
+            // get_or_insert_with: Option<T>型に実装されているメソッド
+            // 動作：
+            //   - FONT_CACHEがNoneの場合：クロージャ || { ... } を実行して初期化し、その結果をSome()で包んで格納
+            //   - FONT_CACHEが既にSome(値)の場合：既存の値への参照をそのまま返す（キャッシュヒット）
+            // 戻り値：&mut T （今回の場合は &mut [[[char; 8]; 16]; 256]）
+            FONT_CACHE.get_or_insert_with(|| {
+                // 全256文字分のフォントデータを格納する3次元配列を初期化
+                // ['*'; 8]: 8個の'*'文字で初期化された配列
+                // [['*'; 8]; 16]: 上記の配列を16個持つ配列（16行分）
+                // [[['*'; 8]; 16]; 256]: 上記を256個持つ配列（256文字分）
+                let mut font = [[['*'; 8]; 16]; 256];
+
+                // FONT_SOURCEを改行文字で分割してイテレータを作成
+                // split('\n'): 文字列を改行で分割
+                let mut fi = FONT_SOURCE.split('\n');
+
+                // 各行を順次処理
+                // while let Some(line): イテレータから次の要素を取得、なくなったらループ終了
+                while let Some(line) = fi.next() {
+                    // strip_prefix("0x"): 行の先頭が"0x"で始まる場合、それを除去した残りを返す
+                    // if let Some(line): strip_prefixが成功した場合のみ処理続行
+                    if let Some(line) = line.strip_prefix("0x") {
+                        // 16進数文字列をu8に変換
+                        // from_str_radix(文字列, 基数): 指定した基数で文字列を数値に変換
+                        // 16: 16進数として解釈
+                        if let Ok(idx) = u8::from_str_radix(line, 16) {
+                            // 1文字分のグリフ（字形）データを格納する配列
+                            // [['*'; 8]; 16]: 16行×8列の2次元配列
+                            let mut glyph = [['*'; 8]; 16];
+
+                            // 現在の文字の16行分のフォントデータを読み取り
+                            // fi.clone(): イテレータを複製（元のイテレータは保持）
+                            // take(16): 最大16個の要素のみ取得
+                            // enumerate(): (インデックス, 値) のタプルを生成
+                            for (y, line) in fi.clone().take(16).enumerate() {
+                                // 各行の文字を1文字ずつ処理
+                                // line.chars(): 文字列を文字のイテレータに変換
+                                // enumerate(): (x座標, 文字) のタプルを生成
+                                for (x, c) in line.chars().enumerate() {
+                                    // 配列の境界チェック付きで要素への可変参照を取得
+                                    // get_mut(x): x番目の要素への可変参照をOption<&mut T>で返す
+                                    // 範囲外アクセスの場合はNoneを返す
+                                    if let Some(e) = glyph[y].get_mut(x) {
+                                        // 参照先の値を更新
+                                        // *e: 参照を逆参照して実際の値にアクセス
+                                        *e = c;
+                                    }
+                                }
                             }
+                            // 完成したグリフデータをフォント配列の適切な位置に格納
+                            // idx as usize: u8をusizeにキャスト（配列インデックスに使用）
+                            font[idx as usize] = glyph;
                         }
                     }
-                    return Some(font);
                 }
-            }
-        }
+                // 初期化完了したフォント配列を返す
+                // この値がFONT_CACHEのSome()に格納される
+                font
+            })
+        };
+        // キャッシュから指定された文字のフォントデータを取得して返す
+        // c as usize: u8をusizeにキャスト
+        // font[c as usize]: 配列への直接アクセス（O(1)の高速アクセス）
+        Some(font[c as usize])
+    } else {
+        // char型からu8型への変換が失敗した場合（ASCII範囲外の文字）
+        // None: フォントデータが存在しないことを示す
+        None
     }
-    None
 }
 
 pub fn draw_font_fg<T: Bitmap>(buf: &mut T, x: i64, y: i64, color: u32, c: char) {
