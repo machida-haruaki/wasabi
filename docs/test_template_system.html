@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>統一学習テンプレートシステム テスト</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-result {
+            background-color: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            white-space: pre-wrap;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .success {
+            border-color: #4ec9b0;
+            background-color: #1e3a32;
+        }
+        .error {
+            border-color: #f44747;
+            background-color: #3a1e1e;
+        }
+        button {
+            background: linear-gradient(45deg, #007acc, #4ec9b0);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 122, 204, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 統一学習テンプレートシステム テスト</h1>
+    
+    <button onclick="testUnifiedTemplate()">統一学習テンプレート生成テスト</button>
+    <button onclick="testVisualizationRequirements()">視覚化要求生成テスト</button>
+    <button onclick="testFullRequestGeneration()">完全な依頼文生成テスト</button>
+    
+    <div id="testResults"></div>
+
+    <script>
+        // カテゴリマッピング
+        const categoryMapping = {
+            'graphics': 'グラフィックシステム',
+            'memory': 'メモリ管理',
+            'system': 'システム基盤',
+            'tools': '開発ツール'
+        };
+
+        // 難易度別の指示を生成
+        function getDifficultyInstructions(difficulty) {
+            const instructions = {
+                '初級': [
+                    '基本概念から丁寧に説明し、専門用語には必ず説明を付加',
+                    '身近な比喩を多用して理解しやすく',
+                    'ステップバイステップの詳細解説',
+                    '「なぜそうなるのか」の理由を重視した説明'
+                ],
+                '中級': [
+                    '実装の詳細とコード例を重視',
+                    '技術的な背景と設計判断の理由を説明',
+                    'パフォーマンスや最適化の観点を含める',
+                    '他の手法との比較を適度に含める'
+                ],
+                '上級': [
+                    '高度な実装テクニックと最適化手法',
+                    '他の手法との詳細な比較・トレードオフ分析',
+                    '実際の問題解決事例と応用例',
+                    'エッジケースや例外処理の詳細'
+                ]
+            };
+            return instructions[difficulty] || instructions['中級'];
+        }
+
+        // カテゴリ別の視覚化要求を生成
+        function getCategoryVisualization(category) {
+            const visualizations = {
+                'graphics': [
+                    'ピクセル描画過程の段階的表示',
+                    '色空間変換の視覚的説明',
+                    'レンダリングパイプラインの図解',
+                    'メモリレイアウトとピクセルデータの関係図'
+                ],
+                'memory': [
+                    'メモリレイアウト図とアドレス空間の視覚化',
+                    'アロケーション/デアロケーション過程のアニメーション',
+                    'フラグメンテーション状態の図解',
+                    'ヒープとスタックの成長過程の表示'
+                ],
+                'system': [
+                    'システム全体のアーキテクチャ図',
+                    'ブート過程やプロセス遷移のフローチャート',
+                    'ハードウェアとソフトウェアの連携図',
+                    'タイムライン表示による処理順序の説明'
+                ],
+                'tools': [
+                    'ビルド過程やワークフローの図解',
+                    'デバッグフローとツール連携の説明',
+                    'テスト実行過程の可視化',
+                    'ファイル構造と依存関係の図示'
+                ]
+            };
+            return visualizations[category] || [];
+        }
+
+        // 統一学習テンプレートを生成
+        function getUnifiedLearningTemplate() {
+            return [
+                '**統一学習体験での解説要求:**',
+                '',
+                '**1. 🌍 技術全体像の解説**',
+                '- 当該技術が属する技術領域全体の俯瞰図（インタラクティブマップ）',
+                '- 関連技術との系統関係（技術系統樹の可視化）',
+                '- この技術分野の発展史と現在の位置づけ',
+                '- 「あなたはここにいます」的な位置表示',
+                '',
+                '**2. 🎯 システム内での位置づけと必要性**',
+                '- WasabiOS全体アーキテクチャでの当該技術の位置',
+                '- 上位技術（何に使われるか）と下位技術（何を使うか）の関係図',
+                '- 他の選択肢との詳細比較表と採用理由',
+                '- 具体的に解決する問題の詳細説明',
+                '- この技術がない場合の困りごとと実際の問題発生シナリオ',
+                '',
+                '**3. ⚙️ 実現技術の詳細**',
+                '- 基本動作原理の段階的図解',
+                '- 「なぜそうなるのか」の理由を重視した仕組みの説明',
+                '- WasabiOSでの実際の実装コード例',
+                '- コードと動作の対応関係の可視化',
+                '- 実装時のポイントとトラブルシューティング',
+                '',
+                '**4. 🔗 学習の完結と次のステップ**',
+                '- 学習内容の要点整理',
+                '- 関連トピックへの自然な導線',
+                '- 推奨学習順序の提案',
+                '- 理解度チェックポイント'
+            ];
+        }
+
+        // 統一視覚化要求を生成
+        function getUnifiedVisualizationRequirements(category) {
+            const baseRequirements = [
+                '**統一視覚化要求:**',
+                '- 技術領域マップ（インタラクティブ、クリック可能）',
+                '- システム全体アーキテクチャ図での位置表示',
+                '- 動作原理のステップバイステップアニメーション',
+                '- 問題→解決の流れを示すフローチャート',
+                '- 代替技術との比較表（視覚的）',
+                '- コード実行と結果の対応関係図'
+            ];
+            
+            const categorySpecific = getCategoryVisualization(category);
+            return baseRequirements.concat(['', '**カテゴリ固有の視覚化:**'].concat(categorySpecific.map(viz => `- ${viz}`)));
+        }
+
+        // テスト関数
+        function testUnifiedTemplate() {
+            try {
+                const template = getUnifiedLearningTemplate();
+                displayResult('統一学習テンプレート生成テスト', template.join('\n'), true);
+            } catch (error) {
+                displayResult('統一学習テンプレート生成テスト', `エラー: ${error.message}`, false);
+            }
+        }
+
+        function testVisualizationRequirements() {
+            try {
+                const categories = ['graphics', 'memory', 'system', 'tools'];
+                let results = [];
+                
+                categories.forEach(category => {
+                    const viz = getUnifiedVisualizationRequirements(category);
+                    results.push(`=== ${categoryMapping[category]} ===`);
+                    results.push(viz.join('\n'));
+                    results.push('');
+                });
+                
+                displayResult('視覚化要求生成テスト', results.join('\n'), true);
+            } catch (error) {
+                displayResult('視覚化要求生成テスト', `エラー: ${error.message}`, false);
+            }
+        }
+
+        function testFullRequestGeneration() {
+            try {
+                // テストデータ
+                const testData = {
+                    topicName: 'ピクセル描画とBitmapトレイト',
+                    category: 'graphics',
+                    difficulty: '中級',
+                    relatedFiles: 'src/graphics.rs, src/bitmap.rs',
+                    description: '- ピクセル単位での描画操作の基本原理\n- Bitmapトレイトの設計思想と実装\n- メモリレイアウトとピクセルデータの関係',
+                    specialRequests: '- ピクセル描画過程のステップバイステップアニメーション\n- メモリレイアウトとピクセルデータの対応関係図'
+                };
+
+                // 依頼文生成
+                const categoryName = categoryMapping[testData.category];
+                const difficultyInstructions = getDifficultyInstructions(testData.difficulty);
+                const unifiedTemplate = getUnifiedLearningTemplate();
+                const unifiedVisualizations = getUnifiedVisualizationRequirements(testData.category);
+                
+                let requestText = `技術解説ページを作成してください：
+
+**基本情報:**
+- トピック: ${testData.topicName}
+- カテゴリ: ${categoryName}
+- 難易度: ${testData.difficulty}
+- 関連ファイル: ${testData.relatedFiles}
+
+**具体的な解説内容:**
+${testData.description}
+
+**難易度別指示 (${testData.difficulty}):**
+${difficultyInstructions.map(instruction => `- ${instruction}`).join('\n')}
+
+${unifiedTemplate.join('\n')}
+
+${unifiedVisualizations.join('\n')}
+
+**学習体験の設計要求:**
+- 一つのページで完結する学習体験
+- スクロールに応じた段階的な理解促進
+- 各セクション間の自然で論理的な流れ
+- 全体像→位置づけ→必要性→実装の一貫した構造
+- 理解の各段階での「なるほど！」体験の創出
+
+**追加の特別な要求:**
+${testData.specialRequests}`;
+
+                displayResult('完全な依頼文生成テスト', requestText, true);
+            } catch (error) {
+                displayResult('完全な依頼文生成テスト', `エラー: ${error.message}`, false);
+            }
+        }
+
+        function displayResult(testName, result, success) {
+            const resultsDiv = document.getElementById('testResults');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${success ? 'success' : 'error'}`;
+            resultDiv.innerHTML = `<h3>${success ? '✅' : '❌'} ${testName}</h3>\n${result}`;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        // ページ読み込み時に自動テスト実行
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                testUnifiedTemplate();
+                setTimeout(() => testVisualizationRequirements(), 500);
+                setTimeout(() => testFullRequestGeneration(), 1000);
+            }, 500);
+        });
+    </script>
+</body>
+</html>

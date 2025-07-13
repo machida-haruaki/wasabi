@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>シリアル通信 - WasabiOS 技術解説</title>
+    <link rel="stylesheet" href="../../assets/style.css">
+    <style>
+        .serial-wave {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #1e1e1e 0%, #2d2d30 100%);
+            border-radius: 12px;
+            border: 2px solid #404040;
+        }
+
+        .wave-container {
+            width: 100%;
+            max-width: 600px;
+            height: 100px;
+            position: relative;
+            background-color: #0d1117;
+            border: 2px solid #569cd6;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .wave-line {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background-color: #4ec9b0;
+            transform: translateY(-1px);
+        }
+
+        .bit-segment {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            border-right: 1px solid #404040;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: bold;
+            transition: all 0.5s ease;
+        }
+
+        .bit-high {
+            background-color: rgba(78, 201, 176, 0.2);
+            color: #4ec9b0;
+        }
+
+        .bit-low {
+            background-color: rgba(244, 71, 71, 0.2);
+            color: #f44747;
+        }
+
+        .bit-start {
+            background-color: rgba(249, 199, 79, 0.2);
+            color: #f9c74f;
+        }
+
+        .bit-stop {
+            background-color: rgba(86, 156, 214, 0.2);
+            color: #569cd6;
+        }
+
+        .register-map {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 2px;
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #1e1e1e;
+            border: 2px solid #569cd6;
+            border-radius: 8px;
+        }
+
+        .register {
+            height: 60px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            border: 1px solid #404040;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .register:hover {
+            transform: scale(1.05);
+            border-color: #007acc;
+        }
+
+        .register-offset {
+            font-size: 0.7rem;
+            color: #b3b3b3;
+            margin-bottom: 4px;
+        }
+
+        .register-name {
+            font-weight: bold;
+            text-align: center;
+            line-height: 1.2;
+        }
+
+        .register-data { background-color: #007acc; color: white; }
+        .register-interrupt { background-color: #4ec9b0; color: #1e1e1e; }
+        .register-fifo { background-color: #f9c74f; color: #1e1e1e; }
+        .register-line { background-color: #f44747; color: white; }
+        .register-modem { background-color: #569cd6; color: white; }
+        .register-status { background-color: #4ec9b0; color: #1e1e1e; }
+        .register-modem-status { background-color: #f9c74f; color: #1e1e1e; }
+        .register-scratch { background-color: #404040; color: #d4d4d4; }
+
+        .qemu-diagram {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #1e1e1e;
+            border: 2px solid #569cd6;
+            border-radius: 12px;
+        }
+
+        .host-system {
+            background-color: #2d2d30;
+            border: 2px solid #4ec9b0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        .qemu-vm {
+            background-color: #264f78;
+            border: 2px solid #007acc;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            width: 80%;
+        }
+
+        .wasabi-os {
+            background-color: #1e3a32;
+            border: 2px solid #4ec9b0;
+            border-radius: 6px;
+            padding: 10px;
+            margin: 5px 0;
+            width: 90%;
+        }
+
+        .connection-arrow {
+            font-size: 2rem;
+            color: #f9c74f;
+            margin: 10px 0;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .init-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .init-step {
+            background-color: #2d2d30;
+            border: 2px solid #404040;
+            border-radius: 8px;
+            padding: 15px;
+            transition: all 0.5s ease;
+            opacity: 0.3;
+        }
+
+        .init-step.active {
+            opacity: 1;
+            border-color: #007acc;
+            background-color: #264f78;
+            transform: scale(1.02);
+        }
+
+        .init-step.completed {
+            opacity: 1;
+            border-color: #4ec9b0;
+            background-color: #1e3a32;
+        }
+
+        .step-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background-color: #007acc;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .step-title {
+            font-weight: bold;
+            color: #569cd6;
+            margin-bottom: 8px;
+        }
+
+        .step-description {
+            font-size: 0.9rem;
+            color: #d4d4d4;
+            line-height: 1.4;
+        }
+
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .comparison-card {
+            background-color: #2d2d30;
+            border: 2px solid #404040;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .comparison-card.parallel {
+            border-color: #f44747;
+        }
+
+        .comparison-card.serial {
+            border-color: #4ec9b0;
+        }
+
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+
+        .card-title.parallel {
+            color: #f44747;
+        }
+
+        .card-title.serial {
+            color: #4ec9b0;
+        }
+
+        .card-icon {
+            font-size: 1.5rem;
+            margin-right: 10px;
+        }
+
+        .data-flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+        }
+
+        .data-bits {
+            display: flex;
+            gap: 5px;
+            margin: 0 10px;
+        }
+
+        .data-bit {
+            width: 25px;
+            height: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .bit-0 { background-color: #f44747; color: white; }
+        .bit-1 { background-color: #4ec9b0; color: #1e1e1e; }
+
+        .flow-arrow {
+            font-size: 1.5rem;
+            color: #f9c74f;
+        }
+
+        .code-highlight {
+            background-color: #1e1e1e;
+            border: 1px solid #404040;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+
+        .rust-keyword { color: #569cd6; }
+        .rust-type { color: #4ec9b0; }
+        .rust-string { color: #ce9178; }
+        .rust-comment { color: #6a9955; }
+        .rust-number { color: #b5cea8; }
+
+        .highlight-line {
+            background-color: #264f78;
+            margin: 0 -15px;
+            padding: 0 15px;
+            border-left: 4px solid #007acc;
+        }
+
+        .step {
+            margin: 20px 0;
+            padding: 20px;
+            border-left: 4px solid #007acc;
+            background-color: #2d2d30;
+            border-radius: 0 8px 8px 0;
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .controls {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        button {
+            background-color: #007acc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 0 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #005a9e;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background-color: #404040;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .progress-container {
+            margin-bottom: 20px;
+        }
+
+        .progress-bar {
+            background: #404040;
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            background: linear-gradient(45deg, #007acc, #4ec9b0);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            text-align: center;
+            margin-top: 8px;
+            font-size: 0.9rem;
+            color: #b3b3b3;
+        }
+
+        .analogy-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .analogy-step {
+            background-color: #2d2d30;
+            border: 2px solid #404040;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .analogy-step:hover {
+            border-color: #007acc;
+            transform: translateY(-2px);
+        }
+
+        .step-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .step-title {
+            font-weight: bold;
+            color: #569cd6;
+            margin-bottom: 5px;
+        }
+
+        .step-desc {
+            font-size: 0.9rem;
+            color: #b3b3b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- ヘッダー -->
+        <header class="page-header">
+            <h1 class="page-title">📡 シリアル通信</h1>
+            <p class="page-subtitle">OS開発における最後の砦 - デバッグとシステム連携の要</p>
+        </header>
+
+        <!-- パンくずリスト -->
+        <nav class="breadcrumb">
+            <a href="../../index.html">🏠 ホーム</a>
+            <span>></span>
+            <a href="../../index.html#system">システム基盤</a>
+            <span>></span>
+            <span>シリアル通信</span>
+        </nav>
+
+        <!-- プログレスバー -->
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+            <div class="progress-text">
+                進捗: <span id="progressText">0 / 10</span>
+            </div>
+        </div>
+
+        <!-- コントロール -->
+        <div class="controls">
+            <button id="startBtn" onclick="startDemo()">🚀 デモ開始</button>
+            <button id="nextBtn" onclick="nextStep()" disabled>➡️ 次のステップ</button>
+            <button id="resetBtn" onclick="resetDemo()">🔄 リセット</button>
+        </div>
+
+        <!-- キーボードショートカット説明 -->
+        <div style="text-align: center; margin-bottom: 30px; font-size: 0.9rem; color: #b3b3b3;">
+            <p>⌨️ キーボード操作: <kbd>Space</kbd>/<kbd>→</kbd> 次へ | <kbd>←</kbd> 前へ | <kbd>R</kbd> リセット | <kbd>Esc</kbd> 終了</p>
+        </div>
+
+        <!-- メインコンテンツ -->
+        <main>
+            <!-- ステップ 0: 導入（疑問提起・比喩） -->
+            <div id="step0" class="step">
+                <h2>🤔 OS開発の最大の難問：デバッグ問題</h2>
+                <div class="question-section">
+                    <div class="question-box">
+                        <h3>💭 考えてみましょう</h3>
+                        <p class="opening-question">
+                            OSを開発している最中、画面出力機能がまだ実装されていない状況で、<br>
+                            プログラムがクラッシュしたり、期待通りに動作しなかったりした場合、<br>
+                            <strong>一体どうやって何が起こっているのかを知ることができるでしょうか？</strong>
+                        </p>
+                    </div>
+                    
+                    <div class="analogy-section">
+                        <h3>🌟 身近な例で考えると...</h3>
+                        <div class="analogy-box">
+                            <p>シリアル通信は、<strong>災害時の緊急無線通信</strong>によく似ています：</p>
+                            
+                            <div class="analogy-steps">
+                                <div class="analogy-step">
+                                    <span class="step-icon">📱</span>
+                                    <div class="step-title">携帯電話</div>
+                                    <div class="step-desc">通常のシステム（画面出力）</div>
+                                </div>
+                                <div class="analogy-step">
+                                    <span class="step-icon">🌪️</span>
+                                    <div class="step-title">災害発生</div>
+                                    <div class="step-desc">システムクラッシュ</div>
+                                </div>
+                                <div class="analogy-step">
+                                    <span class="step-icon">📡</span>
+                                    <div class="step-title">無線通信</div>
+                                    <div class="step-desc">シリアル通信</div>
+                                </div>
+                                <div class="analogy-step">
+                                    <span class="step-icon">🚁</span>
+                                    <div class="step-title">救助隊</div>
+                                    <div class="step-desc">開発者（あなた）</div>
+                                </div>
+                                <div class="analogy-step">
+                                    <span class="step-icon">💾</span>
+                                    <div class="step-title">状況記録</div>
+                                    <div class="step-desc">ログファイル保存</div>
+                                </div>
+                            </div>
+                            
+                            <p>携帯電話の基地局が壊れても、<strong>無線通信</strong>なら確実に外部と連絡が取れる。<br>
+                            同様に、画面出力が使えなくても、<strong>シリアル通信</strong>なら確実に外部にデータを送信できます。</p>
+                        </div>
+                    </div>
+                    
+                    <div class="why-needed-section">
+                        <h3>🎯 なぜこの技術が必要なのか</h3>
+                        <div class="why-needed-box">
+                            <ul>
+                                <li><strong>ブートストラップ問題の解決</strong>: 画面出力機能がない状態でのデバッグ</li>
+                                <li><strong>ハードウェア独立性</strong>: グラフィックカードに依存しない通信手段</li>
+                                <li><strong>確実性の保証</strong>: 最小限の初期化で確実に動作</li>
+                                <li><strong>外部システム連携</strong>: 開発マシンとの橋渡し役</li>
+                                <li><strong>リアルタイム監視</strong>: システムの動作状況を即座に把握</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ステップ 1: シリアルポートとは何か -->
+            <div id="step1" class="step">
+                <h2>🔌 シリアルポートとは何か</h2>
+                <p><strong>シリアルポート</strong>は、データを1ビットずつ順番に送信する通信ハードウェアです。単なる設定やソフトウェアではなく、実際にデータの送受信を行う物理的なハードウェアです。</p>
+                
+                <div class="comparison-grid">
+                    <div class="comparison-card parallel">
+                        <div class="card-title parallel">
+                            <span class="card-icon">🔀</span>
+                            パラレル通信
+                        </div>
+                        <div class="data-flow">
+                            <span>データ:</span>
+                            <div class="data-bits">
+                                <div class="data-bit bit-0">0</div>
+                                <div class="data-bit bit-1">1</div>
+                                <div class="data-bit bit-0">0</div>
+                                <div class="data-bit bit-0">0</div>
+                                <div class="data-bit bit-1">1</div>
+                                <div class="data-bit bit-0">0</div>
+                                <div class="data-bit bit-1">1</div>
+                                <div class="data-bit bit-0">0</div>
+                            </div>
+                        </div>
+                        <div style="text-align: center; margin: 10px 0;">
+                            <span class="flow-arrow">⬇️ 8本の線で同時送信</span>
+                        </div>
+                        <ul>
+                            <li>8本の線で同時にデータ送信</li>
+                            <li>高速だが配線が複雑</li>
+                            <li>距離制限あり</li>
+                            <li>ノイズに弱い</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="comparison-card serial">
+                        <div class="card-title serial">
+                            <span class="card-icon">➡️</span>
+                            シリアル通信
+                        </div>
+                        <div class="data-flow">
+                            <span>データ:</span>
+                            <div class="data-bits">
+                                <div class="data-bit bit-0">0</div>
+                                <span class="flow-arrow">→</span>
+                                <div class="data-bit bit-1">1</div>
+                                <span class="flow-arrow">→</span>
+                                <div class="data-bit bit-0">0</div>
+                                <span class="flow-arrow">→</span>
+                                <div class="data-bit bit-0">0</div>
+                                <span class="flow-arrow">→</span>
+                            </div>
+                        </div>
+                        <div style="text-align: center; margin: 10px 0;">
+                            <span class="flow-arrow">⬇️ 1本の線で順次送信</span>
+                        </div>
+                        <ul>
+                            <li>1本の線で順番にデータ送信</li>
+                            <li>配線がシンプル</li>
+                            <li>長距離通信可能</li>
+                            <li>ノイズに強い</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <h3>🏗️ ハードウェアの主要構成要素</h3>
+                <ul>
+                    <li><strong>送信バッファ</strong>: 送信待ちのデータを一時保存</li>
+                    <li><strong>受信バッファ</strong>: 受信したデータを一時保存</li>
+                    <li><strong>シフトレジスタ</strong>: データを1ビットずつ送受信</li>
+                    <li><strong>ボーレートジェネレータ</strong>: 正確なタイミング制御</li>
+                    <li><strong>制御レジスタ</strong>: 通信設定を管理</li>
+                </ul>
+            </div>
+
+            <!-- ステップ 2: シリアル通信の仕組み -->
+            <div id="step2" class="step">
+                <h2>⚡ シリアル通信の仕組み</h2>
+                <p>シリアル通信では、文字を送信する際に特定の形式でデータを構成します。例として、文字'A'（バイナリ: 01000001）の送信過程を見てみましょう：</p>
+
+                <div class="serial-wave">
+                    <div class="wave-container" id="waveContainer">
+                        <div class="wave-line"></div>
+                        <!-- JavaScriptで動的生成 -->
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0;">
+                    <div style="display: flex; align-items: center;">
+                        <div class="bit-segment bit-start" style="width: 20px; height: 20px; margin-right: 8px;"></div>
+                        <span><strong>スタートビット</strong>: 通信開始の合図</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div class="bit-segment bit-low" style="width: 20px; height: 20px; margin-right: 8px;"></div>
+                        <span><strong>データビット</strong>: 実際の文字データ（8ビット）</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div class="bit-segment bit-stop" style="width: 20px; height: 20px; margin-right: 8px;"></div>
+                        <span><strong>ストップビット</strong>: 通信終了の合図</span>
+                    </div>
+                </div>
+
+                <h3>📊 通信パラメータ</h3>
+                <div style="background-color: #2d2d30; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <ul>
+                        <li><strong>ボーレート</strong>: 115200bps（1秒間に115,200ビット送信）</li>
+                        <li><strong>データビット</strong>: 8ビット（1文字あたり）</li>
+                        <li><strong>パリティ</strong>: なし（エラー検出なし）</li>
+                        <li><strong>ストップビット</strong>: 1ビット</li>
+                        <li><strong>フロー制御</strong>: ハードウェアフロー制御</li>
+                    </ul>
+                </div>
+
+                <p><strong>送信時間の計算：</strong></p>
+                <div class="code-highlight">
+1文字 = スタートビット(1) + データビット(8) + ストップビット(1) = 10ビット
+115200bps ÷ 10ビット = 11,520文字/秒
+1文字あたりの送信時間 = 1 ÷ 11,520 ≈ 87マイクロ秒
+                </div>
+            </div>
+
+            <!-- ステップ 3: OS開発での重要性 -->
+            <div id="step3" class="step">
+                <h2>🎯 OS開発におけるシリアルポートの重要性</h2>
+                <p>OS開発では「鶏と卵」問題が発生します。シリアルポートはこの問題を解決する「最後の砦」として機能します：</p>
+
+                <div style="background-color: #3a1e1e; padding: 20px; border-radius: 8px; border: 2px solid #f44747; margin: 20px 0;">
+                    <h3 style="color: #f44747;">🐔 鶏と卵問題</h3>
+                    <p style="margin: 10px 0;">OSを作っている → まだ画面出力機能がない → デバッグできない → OSが作れない</p>
+                </div>
+
+                <h3>🛡️ シリアルポートが解決する理由</h3>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0;">
+                    <div style="background-color: #1e3a32; padding: 20px; border-radius: 8px; border: 2px solid #4ec9b0;">
+                        <h4 style="color: #4ec9b0;">🔧 ハードウェアレベルでの独立性</h4>
+                        <ul>
+                            <li>CPUと直接接続された非常にシンプルなハードウェア</li>
+                            <li>グラフィックカード、メモリ管理、ファイルシステムと完全に独立</li>
+                            <li>複雑なドライバが不要</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="background-color: #264f78; padding: 20px; border-radius: 8px; border: 2px solid #007acc;">
+                        <h4 style="color: #569cd6;">⚡ 最小限の初期化で動作</h4>
+                        <ul>
+                            <li>I/Oポートへの数回の書き込みのみで動作開始</li>
+                            <li>メモリ割り当て不要、複雑な設定不要</li>
+                            <li>CPU起動直後から使用可能</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="background-color: #3a2e1e; padding: 20px; border-radius: 8px; border: 2px solid #f9c74f;">
+                        <h4 style="color: #f9c74f;">✅ 確実な出力保証</h4>
+                        <ul>
+                            <li>同期通信による確実なデータ送信</li>
+                            <li>バッファリングが最小限</li>
+                            <li>送信完了を確認してから次のデータを送信</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ステップ 4: 外部システムとの連携 -->
+            <div id="step4" class="step">
+                <h2>🌐 外部システムとの連携</h2>
+                <p>シリアルポートの最大の利点は、<strong>開発中のOSと外部システムを繋ぐ橋渡し</strong>をすることです。</p>
+
+                <div class="qemu-diagram">
+                    <div class="host-system">
+                        <h3 style="color: #4ec9b0; text-align: center; margin-bottom: 15px;">🖥️ あなたの開発マシン（ホストOS）</h3>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div style="background-color: #1e1e1e; padding: 15px; border-radius: 6px; border: 1px solid #4ec9b0;">
+                                <h4 style="color: #4ec9b0; margin-bottom: 10px;">📟 ターミナル1</h4>
+                                <div class="code-highlight" style="margin: 0; font-size: 0.8rem;">
+$ tail -f debug.log
+Boot started!
+Memory initialized
+Graphics ready...
+                                </div>
+                            </div>
+                            <div style="background-color: #1e1e1e; padding: 15px; border-radius: 6px; border: 1px solid #007acc;">
+                                <h4 style="color: #007acc; margin-bottom: 10px;">🚀 ターミナル2</h4>
+                                <div class="code-highlight" style="margin: 0; font-size: 0.8rem;">
+$ qemu-system-x86_64 \
+  -serial file:debug.log \
+  wasabi.img
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="connection-arrow">⬇️</div>
+                        
+                        <div class="qemu-vm">
+                            <h4 style="color: #569cd6; text-align: center; margin-bottom: 10px;">🔧 QEMU仮想マシン</h4>
+                            <p style="text-align: center; font-size: 0.9rem; margin-bottom: 10px;">シリアルポート(0x3F8)の書き込みを検出・転送</p>
+                            
+                            <div class="connection-arrow">⬇️</div>
+                            
+                            <div class="wasabi-os">
+                                <h5 style="color: #4ec9b0; text-align: center; margin-bottom: 8px;">🍃 WasabiOS（ゲストOS）</h5>
+                                <div class="code-highlight" style="margin: 0; font-size: 0.7rem;">
+<span class="rust-comment">// シリアル出力</span>
+serial.send_str(<span class="rust-string">"Boot started!\n"</span>);
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h3>🔧 QEMU環境での活用方法</h3>
+                <div class="code-highlight">
+<span class="rust-comment"># シリアル出力をファイルに保存</span>
+qemu-system-x86_64 -serial file:debug.log your_os.img
+
+<span class="rust-comment"># シリアル出力をホストOSの端末に表示</span>
+qemu-system-x86_64 -serial stdio your_os.img
+
+<span class="rust-comment"># シリアル出力をTCPポートに転送（リモート監視）</span>
+qemu-system-x86_64 -serial tcp:localhost:1234,server your_os.img
+                </div>
+
+                <h3>💼 実際の開発ワークフロー例</h3>
+                <div style="background-color: #2d2d30; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <div class="code-highlight">
+<span class="rust-comment"># ターミナル1: OSをQEMUで起動</span>
+qemu-system-x86_64 -serial file:debug.log wasabi.img
+
+<span class="rust-comment"># ターミナル2: リアルタイムでログ監視</span>
+tail -f debug.log
+
+<span class="rust-comment"># ターミナル3: ログ解析</span>
+grep "ERROR" debug.log
+grep "Memory initialized" debug.log
+                    </div>
+                </div>
+            </div>
+
+            <!-- ステップ 5: I/Oポートとレジスタ -->
+            <div id="step5" class="step">
+                <h2>🎛️ I/Oポートとレジスタ構成</h2>
+                <p>シリアルポートは複数のレジスタで構成されており、それぞれが特定の役割を持っています。COM1ポート（0x3F8）の構成を見てみましょう：</p>
+
+                <div class="register-map" id="registerMap">
+                    <div class="register register-data" data-offset="0">
+                        <div class="register-offset">+0</div>
+                        <div class="register-name">データ<br>レジスタ</div>
+                    </div>
+                    <div class="register register-interrupt" data-offset="1">
+                        <div class="register-offset">+1</div>
+                        <div class="register-name">割り込み<br>有効</div>
+                    </div>
+                    <div class="register register-fifo" data-offset="2">
+                        <div class="register-offset">+2</div>
+                        <div class="register-name">FIFO<br>制御</div>
+                    </div>
+                    <div class="register register-line" data-offset="3">
+                        <div class="register-offset">+3</div>
+                        <div class="register-name">ライン<br>制御</div>
+                    </div>
+                    <div class="register register-modem" data-offset="4">
+                        <div class="register-offset">+4</div>
+                        <div class="register-name">モデム<br>制御</div>
+                    </div>
+                    <div class="register register-status" data-offset="5">
+                        <div class="register-offset">+5</div>
+                        <div class="register-name">ライン<br>状態</div>
+                    </div>
+                    <div class="register register-modem-status" data-offset="6">
+                        <div class="register-offset">+6</div>
+                        <div class="register-name">モデム<br>状態</div>
+                    </div>
+                    <div class="register register-scratch" data-offset="7">
+                        <div class="register-offset">+7</div>
+                        <div class="register-name">スクラッチ<br>レジスタ</div>
+                    </div>
+                </div>
+
+                <h3>📋 各レジスタの詳細</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin: 20px 0;">
+                    <div style="background-color: #264f78; padding: 15px; border-radius: 8px; border: 2px solid #007acc;">
+                        <h4 style="color: #007acc;">📤 データレジスタ (base + 0)</h4>
+                        <ul>
+                            <li>送受信データの読み書き</li>
+                            <li>DLAB=1時はボーレート下位バイト</li>
+                            <li>最も頻繁に使用されるレジスタ</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="background-color: #1e3a32; padding: 15px; border-radius: 8px; border: 2px solid #4ec9b0;">
+                        <h4 style="color: #4ec9b0;">🔔 割り込み有効レジスタ (base + 1)</h4>
+                        <ul>
+                            <li>各種割り込みの有効/無効制御</li>
+                            <li>DLAB=1時はボーレート上位バイト</li>
+                            <li>初期化時は通常0x00に設定</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="background-color: #3a2e1e; padding: 15px; border-radius: 8px; border: 2px solid #f9c74f;">
+                        <h4 style="color: #f9c74f;">📦 FIFO制御レジスタ (base + 2)</h4>
+                        <ul>
+                            <li>FIFOバッファの有効化</li>
+                            <li>送受信バッファのクリア</li>
+                            <li>割り込み閾値の設定</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="background-color: #3a1e1e; padding: 15px; border-radius: 8px; border: 2px solid #f44747;">
+                        <h4 style="color: #f44747;">⚙️ ライン制御レジスタ (base + 3)</h4>
+                        <ul>
+                            <li>データフォーマット設定</li>
+                            <li>DLAB（Data Latch Access Bit）制御</li>
+                            <li>パリティ、ストップビット設定</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ステップ 6: 初期化プロセス -->
+            <div id="step6" class="step">
+                <h2>🔧 シリアルポート初期化プロセス</h2>
+                <p>シリアルポートの初期化は、ハードウェアレジスタを正しい順序で設定することで行われます。各ステップには技術的な理由があります。</p>
+
+                <div class="init-steps" id="initSteps">
+                    <div class="init-step" id="init-step-1">
+                        <div class="step-title">
+                            <span class="step-number">1</span>
+                            割り込み無効化
+                        </div>
+                        <div class="step-description">
+                            初期化中に予期しない割り込みを防ぐため、IER（Interrupt Enable Register）を0x00に設定
+                        </div>
+                    </div>
+                    
+                    <div class="init-step" id="init-step-2">
+                        <div class="step-title">
+                            <span class="step-number">2</span>
+                            DLAB有効化
+                        </div>
+                        <div class="step-description">
+                            ボーレート設定レジスタにアクセスするため、LCR（Line Control Register）のDLABビットを1に設定
+                        </div>
+                    </div>
+                    
+                    <div class="init-step" id="init-step-3">
+                        <div class="step-title">
+                            <span class="step-number">3</span>
+                            ボーレート設定
+                        </div>
+                        <div class="step-description">
+                            115200bps用の除数（0x0001）を上位・下位バイトに分けて設定
+                        </div>
+                    </div>
+                    
+                    <div class="init-step" id="init-step-4">
+                        <div class="step-title">
+                            <span class="step-number">4</span>
+                            データフォーマット
+                        </div>
+                        <div class="step-description">
+                            8ビット、パリティなし、ストップビット1に設定し、DLABを無効化（LCR = 0x03）
+                        </div>
+                    </div>
+                    
+                    <div class="init-step" id="init-step-5">
+                        <div class="step-title">
+                            <span class="step-number">5</span>
+                            FIFO制御
+                        </div>
+                        <div class="step-description">
+                            FIFOを有効化し、送受信バッファをクリア、14バイト閾値を設定（FCR = 0xC7）
+                        </div>
+                    </div>
+                    
+                    <div class="init-step" id="init-step-6">
+                        <div class="step-title">
+                            <span class="step-number">6</span>
+                            モデム制御
+                        </div>
+                        <div class="step-description">
+                            DTR、RTS信号を有効化し、割り込みを有効にする（MCR = 0x0B）
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-highlight">
+<span class="rust-comment">// WasabiOSでの初期化実装</span>
+<span class="rust-keyword">pub fn</span> init(&<span class="rust-keyword">mut self</span>) {
+    <span class="rust-comment">// ステップ1: 全ての割り込みを無効化</span>
+    <div class="highlight-line">    write_io_port_u8(<span class="rust-keyword">self</span>.base + <span class="rust-number">1</span>, <span class="rust-number">0x00</span>);</div>
+    
+    <span class="rust-comment">// ステップ2: DLABを有効にしてボーレート設定モードに</span>
+    <div class="highlight-line">    write_io_port_u8(<span class="rust-keyword">self</span>.base + <span class="rust-number">3</span>, <span class="rust-number">0x80</span>);</div>
+    
+    <span class="rust-comment">// ステップ3: ボーレート除数を設定（115200bps用）</span>
+    <span class="rust-keyword">const</span> <span class="rust-type">BAUD_DIVISOR</span>: <span class="rust-type">u16</span> = <span class="rust-number">0x0001</span>;
+    <div class="highlight-line">    write_io_port_u8(<span class="rust-keyword">self</span>.base, (<span class="rust-type">BAUD_DIVISOR</span> & <span class="rust-number">0xff</span>) <span class="rust-keyword">as</span> <span class="rust-type">u8</span>);</div>
+    <div class="highlight-line">    write_io_port_u8(<span class="rust-keyword">self</span>.base + <span class="rust-number">1</span>, (<span class="rust-type">BAUD_DIVISOR</span> >> <span class="rust-number">8</span>) <span class="rust-keyword">as</span> <span class="rust-type">u8</span>);</div>
+    
+    <span class="rust-comment">// ステップ4: データフォーマットを設定し、DLABを無効化</span>
+    <div class="highlight-line">    write_io_port_u8(<span class="rust-keyword">self</span>.base + <span class="rust-number">3</span>, <span class="rust-number">0x03</span>);</div>
+    
+    <span class="rust-comment">// ステップ5: FIFO制御を設定</span>
+    <div class="highlight-line">    write_io_port_u8(<span class="rust-keyword">self</span>.base + <span class="rust-number">2</span>, <span class="rust-number">0xc7</span>);</div>
+    
+    <span class="rust-comment">// ステップ6: モデム制御信号を設定</span>
+    <div class="highlight-line">    write_io_port_u8(<span class="rust-keyword">self</span>.base + <span class="rust-number">4</span>, <span class="rust-number">0x0B</span>);</div>
+}
+                </div>
+            </div>
+
+            <!-- ステップ 7: 文字送信の実装 -->
+            <div id="step7" class="step">
+                <h2>📤 文字送信の実装</h2>
+                <p>シリアル通信は<strong>同期通信</strong>です。送信バッファが空になるまで待機してから次の文字を送信する必要があります。</p>
+
+                <h3>🔄 送信手順</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin: 20px 0;">
+                    <div style="background-color: #264f78; padding: 15px; border-radius: 8px; border: 2px solid #007acc;">
+                        <h4 style="color: #007acc;">1️⃣ 送信準備完了チェック</h4>
+                        <p>LSR（Line Status Register）のbit 5を監視して、送信ホールドレジスタが空かどうかを確認</p>
+                    </div>
+                    
+                    <div style="background-color: #3a2e1e; padding: 15px; border-radius: 8px; border: 2px solid #f9c74f;">
+                        <h4 style="color: #f9c74f;">2️⃣ ビジーウェイト</h4>
+                        <p>送信バッファが空になるまで待機。busy_loop_hint()でCPU最適化</p>
+                    </div>
+                    
+                    <div style="background-color: #1e3a32; padding: 15px; border-radius: 8px; border: 2px solid #4ec9b0;">
+                        <h4 style="color: #4ec9b0;">3️⃣ データ送信</h4>
+                        <p>データレジスタ（base + 0）に文字を書き込んで送信開始</p>
+                    </div>
+                </div>
+
+                <div class="code-highlight">
+<span class="rust-comment">// 1文字送信の実装</span>
+<span class="rust-keyword">pub fn</span> send_char(&<span class="rust-keyword">self</span>, c: <span class="rust-type">char</span>) {
+    <span class="rust-comment">// 送信準備完了まで待機</span>
+    <span class="rust-comment">// LSR (Line Status Register) = base + 5</span>
+    <span class="rust-comment">// bit 5 = THRE (Transmitter Holding Register Empty)</span>
+    <span class="rust-comment">// 0x20 = 0010 0000 (bit 5のマスク)</span>
+    <div class="highlight-line">    <span class="rust-keyword">while</span> (read_io_port_u8(<span class="rust-keyword">self</span>.base + <span class="rust-number">5</span>) & <span class="rust-number">0x20</span>) == <span class="rust-number">0</span> {</div>
+        <span class="rust-comment">// CPUに最適化ヒントを提供（PAUSE命令）</span>
+        <div class="highlight-line">        busy_loop_hint();</div>
+    }
+
+    <span class="rust-comment">// データレジスタ（base + 0）に文字を書き込み</span>
+    <div class="highlight-line">    write_io_port_u8(<span class="rust-keyword">self</span>.base, c <span class="rust-keyword">as</span> <span class="rust-type">u8</span>)</div>
+}
+                </div>
+
+                <h3>📝 文字列送信の実装</h3>
+                <div class="code-highlight">
+<span class="rust-comment">// 文字列送信の実装</span>
+<span class="rust-keyword">pub fn</span> send_str(&<span class="rust-keyword">self</span>, s: &<span class="rust-type">str</span>) {
+    <span class="rust-keyword">let mut</span> sc = s.chars();
+    <span class="rust-keyword">let</span> slen = s.chars().count();
+
+    <span class="rust-comment">// 各文字を順次送信</span>
+    <div class="highlight-line">    <span class="rust-keyword">for</span> _ <span class="rust-keyword">in</span> <span class="rust-number">0</span>..slen {</div>
+        <div class="highlight-line">        <span class="rust-keyword">self</span>.send_char(sc.next().unwrap());</div>
+    }
+}
+                </div>
+            </div>
+
+            <!-- ステップ 8: WasabiOSでの実装 -->
+            <div id="step8" class="step">
+                <h2>🍃 WasabiOSでの実装</h2>
+                <p>WasabiOSでは、シリアル通信機能を効率的で使いやすい形で実装しています。</p>
+
+                <h3>🏗️ SerialPort構造体の設計</h3>
+                <div class="code-highlight">
+<span class="rust-comment">/// シリアルポート制御構造体</span>
+<span class="rust-keyword">#[repr(C)]</span>
+<span class="rust-keyword">pub struct</span> <span class="rust-type">SerialPort</span> {
+    <span class="rust-comment">/// シリアルポートのベースI/Oアドレス</span>
+    <span class="rust-comment">/// COM1: 0x3F8, COM2: 0x2F8, COM3: 0x3E8, COM4: 0x2E8</span>
+    <div class="highlight-line">    base: <span class="rust-type">u16</span>,</div>
+}
+
+<span class="rust-keyword">impl</span> <span class="rust-type">SerialPort</span> {
+    <span class="rust-comment">/// COM1ポート用のシリアルポートインスタンスを作成</span>
+    <div class="highlight-line">    <span class="rust-keyword">pub fn</span> new_for_com1() -> <span class="rust-type">Self</span> {</div>
+        <div class="highlight-line">        <span class="rust-type">Self</span>::new(<span class="rust-number">0x3f8</span>)</div>
+    }
+}
+                </div>
+
+                <h3>✍️ fmt::Writeトレイトの実装</h3>
+                <p>Rustの標準フォーマット機能との統合により、<code>write!</code>や<code>writeln!</code>マクロが使用可能になります：</p>
+
+                <div class="code-highlight">
+<span class="rust-keyword">impl</span> fmt::<span class="rust-type">Write</span> <span class="rust-keyword">for</span> <span class="rust-type">SerialPort</span> {
+    <span class="rust-keyword">fn</span> write_str(&<span class="rust-keyword">mut self</span>, s: &<span class="rust-type">str</span>) -> fmt::<span class="rust-type">Result</span> {
+        <div class="highlight-line">        <span class="rust-keyword">let</span> serial = <span class="rust-type">Self</span>::default();</div>
+        <div class="highlight-line">        serial.send_str(s);</div>
+        <span class="rust-type">Ok</span>(())
+    }
+}
+                </div>
+
+                <h3>🎯 実用的な使用例</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; margin: 20px 0;">
+                    <div style="background-color: #1e3a32; padding: 20px; border-radius: 8px; border: 2px solid #4ec9b0;">
+                        <h4 style="color: #4ec9b0;">🚀 起動直後のデバッグ</h4>
+                        <div class="code-highlight" style="margin: 10px 0;">
+<span class="rust-keyword">fn</span> early_boot() {
+    <span class="rust-keyword">let mut</span> serial = <span class="rust-type">SerialPort</span>::new_for_com1();
+    serial.init();
+    serial.send_str(<span class="rust-string">"Boot started!\n"</span>);
+    
+    init_memory();
+    serial.send_str(<span class="rust-string">"Memory initialized\n"</span>);
+}
+                        </div>
+                    </div>
+                    
+                    <div style="background-color: #3a1e1e; padding: 20px; border-radius: 8px; border: 2px solid #f44747;">
+                        <h4 style="color: #f44747;">💥 パニック時の情報保存</h4>
+                        <div class="code-highlight" style="margin: 10px 0;">
+<span class="rust-keyword">#[panic_handler]</span>
+<span class="rust-keyword">fn</span> panic(info: &<span class="rust-type">PanicInfo</span>) -> ! {
+    <span class="rust-keyword">let mut</span> serial = <span class="rust-type">SerialPort</span>::new_for_com1();
+    serial.send_str(<span class="rust-string">"PANIC: "</span>);
+    <span class="rust-keyword">write!</span>(serial, <span class="rust-string">"{}"</span>, info).unwrap();
+    <span class="rust-keyword">loop</span> {}
+}
+                        </div>
+                    </div>
+                </div>
+
+                <h3>🔧 フォーマット機能の活用</h3>
+                <div class="code-highlight">
+<span class="rust-keyword">use</span> core::fmt::<span class="rust-type">Write</span>;
+
+<span class="rust-keyword">let mut</span> serial = <span class="rust-type">SerialPort</span>::new_for_com1();
+serial.init();
+
+<span class="rust-comment">// フォーマット文字列を使用した出力</span>
+<div class="highlight-line"><span class="rust-keyword">write!</span>(serial, <span class="rust-string">"Value: {}\n"</span>, <span class="rust-number">42</span>).unwrap();</div>
+<div class="highlight-line"><span class="rust-keyword">writeln!</span>(serial, <span class="rust-string">"Debug: x={}, y={}"</span>, x, y).unwrap();</div>
+
+<span class="rust-comment">// 複雑なフォーマット</span>
+<div class="highlight-line"><span class="rust-keyword">writeln!</span>(serial, <span class="rust-string">"Hex: 0x{:08X}, Binary: {:08b}"</span>, value, value).unwrap();</div>
+                </div>
+            </div>
+
+            <!-- ステップ 9: まとめ -->
+            <div id="step9" class="step">
+                <h2>🎯 まとめ</h2>
+                <p>シリアル通信は、OS開発における「最後の砦」として、確実で信頼性の高い通信手段を提供します。</p>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                    <div style="background-color: #1e3a32; padding: 20px; border-radius: 8px; border: 2px solid #4ec9b0;">
+                        <h3 style="color: #4ec9b0;">✅ シリアル通信の利点</h3>
+                        <ul>
+                            <li><strong>確実性</strong><br>最小限の初期化で確実に動作</li>
+                            <li><strong>独立性</strong><br>他のシステムに依存しない</li>
+                            <li><strong>シンプルさ</strong><br>理解しやすい仕組み</li>
+                            <li><strong>汎用性</strong><br>様々な環境で利用可能</li>
+                            <li><strong>デバッグ効率</strong><br>リアルタイム監視が可能</li>
+                        </ul>
+                    </div>
+                    <div style="background-color: #3a1e1e; padding: 20px; border-radius: 8px; border: 2px solid #f44747;">
+                        <h3 style="color: #f44747;">⚠️ 注意点</h3>
+                        <ul>
+                            <li><strong>速度制限</strong><br>115200bpsの帯域制限</li>
+                            <li><strong>文字制限</strong><br>非ASCII文字の表示問題</li>
+                            <li><strong>ブロッキング動作</strong><br>送信完了まで待機が必要</li>
+                            <li><strong>ハードウェア依存</strong><br>物理ポートの存在が前提</li>
+                            <li><strong>設定の複雑さ</strong><br>レジスタ設定の理解が必要</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div style="background-color: #264f78; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #007acc;">
+                    <h3 style="color: #569cd6;">🔍 学習のポイント</h3>
+                    <p>シリアル通信を理解することで、以下の知識が身につきます：</p>
+                    <ul>
+                        <li><strong>低レベルハードウェア制御</strong>: I/Oポートとレジスタ操作</li>
+                        <li><strong>同期通信の仕組み</strong>: ビジーウェイトとタイミング制御</li>
+                        <li><strong>デバッグ技法</strong>: 効果的なログ出力とトラブルシューティング</li>
+                        <li><strong>システム間連携</strong>: 異なるシステム間でのデータ交換</li>
+                        <li><strong>プロトコル設計</strong>: 通信フォーマットと制御信号</li>
+                    </ul>
+                </div>
+
+                <p style="text-align: center; font-size: 1.2rem; color: #4ec9b0; margin-top: 30px;">
+                    <strong>🍃 WasabiOSでは、シリアル通信を活用して<br>
+                    確実で効率的なデバッグ環境を構築しています！</strong>
+                </p>
+            </div>
+        </main>
+
+        <!-- フッター -->
+        <footer class="page-footer">
+            <p>🍃 WasabiOS - シリアル通信 の技術解説</p>
+            <p>実装ファイル: <code>src/serial.rs</code></p>
+            <a href="../../index.html" class="back-to-index">📚 インデックスに戻る</a>
+        </footer>
+    </div>
+
+    <script src="../../assets/script.js"></script>
+    <script>
+        let currentStep = -1;
+        const totalSteps = 9;
+
+        function startDemo() {
+            currentStep = 0;
+            document.getElementById('nextBtn').disabled = false;
+            showStep(currentStep);
+            updateProgress();
+        }
+
+        function nextStep() {
+            if (currentStep < totalSteps) {
+                currentStep++;
+                showStep(currentStep);
+                updateProgress();
+            }
+            
+            if (currentStep >= totalSteps) {
+                document.getElementById('nextBtn').disabled = true;
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 0) {
+                currentStep--;
+                showStep(currentStep);
+                updateProgress();
+                document.getElementById('nextBtn').disabled = false;
+            }
+        }
+
+        function showStep(step) {
+            // Hide all steps
+            for (let i = 0; i <= totalSteps; i++) {
+                const stepElement = document.getElementById(`step${i}`);
+                if (stepElement) {
+                    stepElement.classList.remove('active');
+                }
+            }
+            
+            // Show current step
+            const currentStepElement = document.getElementById(`step${step}`);
+            if (currentStepElement) {
+                currentStepElement.classList.add('active');
+            }
+            
+            // Special animations for specific steps
+            if (step === 2) {
+                animateSerialWave();
+            } else if (step === 6) {
+                animateInitSteps();
+            }
+        }
+
+        function resetDemo() {
+            currentStep = -1;
+            document.getElementById('nextBtn').disabled = true;
+            
+            for (let i = 0; i <= totalSteps; i++) {
+                const stepElement = document.getElementById(`step${i}`);
+                if (stepElement) {
+                    stepElement.classList.remove('active');
+                }
+            }
+            
+            // Reset animations
+            resetSerialWave();
+            resetInitSteps();
+            
+            updateProgress();
+        }
+
+        function updateProgress() {
+            const progress = currentStep >= 0 ? ((currentStep + 1) / (totalSteps + 1)) * 100 : 0;
+            document.getElementById('progressFill').style.width = `${progress}%`;
+            document.getElementById('progressText').textContent = `${Math.max(0, currentStep + 1)} / ${totalSteps + 1}`;
+        }
+
+        function animateSerialWave() {
+            const container = document.getElementById('waveContainer');
+            if (!container) return;
+            
+            // Clear existing content
+            container.innerHTML = '<div class="wave-line"></div>';
+            
+            // Character 'A' = 01000001
+            const bits = ['S', '1', '0', '0', '0', '0', '0', '0', '1', 'E']; // Start + Data + Stop
+            const bitTypes = ['bit-start', 'bit-high', 'bit-low', 'bit-low', 'bit-low', 'bit-low', 'bit-low', 'bit-low', 'bit-high', 'bit-stop'];
+            
+            bits.forEach((bit, index) => {
+                const segment = document.createElement('div');
+                segment.className = `bit-segment ${bitTypes[index]}`;
+                segment.style.left = `${(index * 10)}%`;
+                segment.style.width = '10%';
+                segment.textContent = bit;
+                segment.style.opacity = '0';
+                segment.style.transform = 'scale(0.8)';
+                
+                container.appendChild(segment);
+                
+                // Animate in sequence
+                setTimeout(() => {
+                    segment.style.transition = 'all 0.5s ease';
+                    segment.style.opacity = '1';
+                    segment.style.transform = 'scale(1)';
+                }, index * 200);
+            });
+        }
+
+        function resetSerialWave() {
+            const container = document.getElementById('waveContainer');
+            if (container) {
+                container.innerHTML = '<div class="wave-line"></div>';
+            }
+        }
+
+        function animateInitSteps() {
+            const steps = ['init-step-1', 'init-step-2', 'init-step-3', 'init-step-4', 'init-step-5', 'init-step-6'];
+            let currentInitStep = 0;
+            
+            function activateNextInitStep() {
+                if (currentInitStep < steps.length) {
+                    const element = document.getElementById(steps[currentInitStep]);
+                    if (element) {
+                        element.classList.add('active');
+                        
+                        setTimeout(() => {
+                            element.classList.remove('active');
+                            element.classList.add('completed');
+                            currentInitStep++;
+                            activateNextInitStep();
+                        }, 1000);
+                    }
+                }
+            }
+            
+            // Reset all steps first
+            steps.forEach(stepId => {
+                const element = document.getElementById(stepId);
+                if (element) {
+                    element.classList.remove('active', 'completed');
+                }
+            });
+            
+            // Start animation
+            setTimeout(activateNextInitStep, 500);
+        }
+
+        function resetInitSteps() {
+            const steps = ['init-step-1', 'init-step-2', 'init-step-3', 'init-step-4', 'init-step-5', 'init-step-6'];
+            steps.forEach(stepId => {
+                const element = document.getElementById(stepId);
+                if (element) {
+                    element.classList.remove('active', 'completed');
+                }
+            });
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowRight' || e.key === ' ') {
+                e.preventDefault();
+                if (currentStep === -1) {
+                    startDemo();
+                } else if (currentStep < totalSteps) {
+                    nextStep();
+                }
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                if (currentStep > 0) {
+                    prevStep();
+                }
+            } else if (e.key === 'r' || e.key === 'R') {
+                e.preventDefault();
+                resetDemo();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                resetDemo();
+            }
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            updateProgress();
+        });
+
+        // Page-specific step handling
+        document.addEventListener('stepChanged', function(e) {
+            const step = e.detail.step;
+            
+            if (step === 2) {
+                animateSerialWave();
+            } else if (step === 6) {
+                animateInitSteps();
+            }
+        });
+    </script>
+</body>
+</html>
