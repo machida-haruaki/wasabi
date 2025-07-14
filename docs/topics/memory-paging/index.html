@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CR3レジスタとページング機構 - WasabiOS 技術解説</title>
+    <link rel="stylesheet" href="../../assets/style.css">
+    <style>
+        /* 統一学習体験用のスタイル */
+        .learning-section {
+            margin: 40px 0;
+            padding: 30px;
+            border-radius: 12px;
+            border-left: 5px solid;
+            transition: all 0.3s ease;
+        }
+
+        .learning-section.overview {
+            background: linear-gradient(135deg, #1e3a32 0%, #2d4f42 100%);
+            border-left-color: #4ec9b0;
+        }
+
+        .learning-section.positioning {
+            background: linear-gradient(135deg, #264f78 0%, #3a6ba5 100%);
+            border-left-color: #007acc;
+        }
+
+        .learning-section.implementation {
+            background: linear-gradient(135deg, #3a2e1e 0%, #4f3e2a 100%);
+            border-left-color: #f9c74f;
+        }
+
+        .learning-section.conclusion {
+            background: linear-gradient(135deg, #3a1e3a 0%, #4f2a4f 100%);
+            border-left-color: #c586c0;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .section-icon {
+            font-size: 2.5rem;
+            margin-right: 15px;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .section-subtitle {
+            font-size: 1rem;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        .tech-map {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .tech-node {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .tech-node:hover {
+            transform: translateY(-3px);
+            border-color: #4ec9b0;
+            box-shadow: 0 5px 20px rgba(78, 201, 176, 0.3);
+        }
+
+        .tech-node.current {
+            border-color: #f9c74f;
+            background: rgba(249, 199, 79, 0.2);
+        }
+
+        .architecture-diagram {
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .comparison-table th {
+            background: rgba(255, 255, 255, 0.1);
+            font-weight: 600;
+        }
+
+        .comparison-table tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .code-implementation {
+            background: #0d1117;
+            border: 2px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+
+        .code-explanation {
+            background: rgba(255, 255, 255, 0.05);
+            border-left: 4px solid #007acc;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .learning-checkpoint {
+            background: rgba(78, 201, 176, 0.1);
+            border: 2px solid #4ec9b0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+        }
+
+        .checkpoint-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #4ec9b0;
+            margin-bottom: 10px;
+        }
+
+        .next-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .next-step-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .next-step-card:hover {
+            border-color: #007acc;
+            transform: translateY(-2px);
+        }
+
+        .step-card-title {
+            font-weight: 600;
+            color: #569cd6;
+            margin-bottom: 8px;
+        }
+
+        .progress-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(45, 45, 48, 0.9);
+            border: 2px solid #007acc;
+            border-radius: 8px;
+            padding: 10px 15px;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+
+        .progress-text {
+            font-size: 0.9rem;
+            color: #d4d4d4;
+        }
+
+        .register-diagram {
+            background: #1a1a1a;
+            border: 2px solid #4ec9b0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: monospace;
+        }
+
+        .bit-field {
+            display: flex;
+            border: 1px solid #666;
+            margin: 10px 0;
+        }
+
+        .bit-box {
+            padding: 8px;
+            text-align: center;
+            border-right: 1px solid #666;
+            min-width: 40px;
+            font-size: 0.9rem;
+        }
+
+        .bit-box:last-child {
+            border-right: none;
+        }
+
+        .bit-box.reserved {
+            background: #333;
+            color: #888;
+        }
+
+        .bit-box.address {
+            background: #4ec9b0;
+            color: #000;
+            font-weight: bold;
+        }
+
+        .bit-box.flags {
+            background: #f9c74f;
+            color: #000;
+            font-weight: bold;
+        }
+
+        .hexdump-container {
+            background: #0d1117;
+            border: 2px solid #30363d;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        .hexdump-line {
+            margin: 2px 0;
+            display: flex;
+            align-items: center;
+        }
+
+        .hex-address {
+            color: #569cd6;
+            margin-right: 10px;
+            min-width: 80px;
+        }
+
+        .hex-data {
+            color: #d4d4d4;
+            margin-right: 10px;
+            flex: 1;
+        }
+
+        .hex-ascii {
+            color: #608b4e;
+            border-left: 1px solid #666;
+            padding-left: 10px;
+        }
+
+        .highlight-entry {
+            background: rgba(249, 199, 79, 0.3);
+            padding: 2px;
+            border-radius: 3px;
+        }
+
+        .page-table-hierarchy {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            flex-wrap: wrap;
+        }
+
+        .page-level {
+            text-align: center;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            margin: 5px;
+            min-width: 120px;
+        }
+
+        .page-level.current {
+            background: rgba(249, 199, 79, 0.3);
+            border: 2px solid #f9c74f;
+        }
+
+        .arrow {
+            font-size: 1.5rem;
+            color: #4ec9b0;
+            margin: 0 10px;
+        }
+
+        @media (max-width: 768px) {
+            .learning-section {
+                margin: 20px 0;
+                padding: 20px;
+            }
+            
+            .section-icon {
+                width: 50px;
+                height: 50px;
+                font-size: 2rem;
+            }
+            
+            .section-title {
+                font-size: 1.5rem;
+            }
+            
+            .progress-indicator {
+                position: relative;
+                top: auto;
+                right: auto;
+                margin-bottom: 20px;
+            }
+
+            .page-table-hierarchy {
+                flex-direction: column;
+            }
+
+            .arrow {
+                transform: rotate(90deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- ヘッダー -->
+        <header class="page-header">
+            <h1 class="page-title">🧠 CR3レジスタとページング機構</h1>
+            <p class="page-subtitle">x86_64アーキテクチャにおけるメモリ管理の中核技術</p>
+        </header>
+
+        <!-- パンくずリスト -->
+        <nav class="breadcrumb">
+            <a href="../../index.html">🏠 ホーム</a>
+            <span>></span>
+            <a href="../../index.html#memory-management">メモリ管理</a>
+            <span>></span>
+            <span>CR3レジスタとページング機構</span>
+        </nav>
+
+        <!-- 学習進捗インジケーター -->
+        <div class="progress-indicator">
+            <div class="progress-text">学習進捗: <span id="learningProgress">0%</span></div>
+        </div>
+
+        <!-- メインコンテンツ -->
+        <main>
+            <!-- セクション1: 技術全体像 -->
+            <section class="learning-section overview" id="section-overview">
+                <div class="section-header">
+                    <div class="section-icon">🌍</div>
+                    <div>
+                        <h2 class="section-title">技術全体像</h2>
+                        <p class="section-subtitle">メモリ管理技術領域におけるページングの位置づけ</p>
+                    </div>
+                </div>
+
+                <div class="tech-map">
+                    <div class="tech-node">
+                        <h4>🏗️ 物理メモリ管理</h4>
+                        <p>RAMの直接制御</p>
+                        <small>基盤技術</small>
+                    </div>
+                    <div class="tech-node current">
+                        <h4>🧠 ページング機構</h4>
+                        <p>仮想メモリの実現</p>
+                        <small>現在学習中</small>
+                    </div>
+                    <div class="tech-node">
+                        <h4>🔒 メモリ保護</h4>
+                        <p>アクセス制御</p>
+                        <small>応用技術</small>
+                    </div>
+                    <div class="tech-node">
+                        <h4>⚡ TLB管理</h4>
+                        <p>アドレス変換高速化</p>
+                        <small>最適化技術</small>
+                    </div>
+                    <div class="tech-node">
+                        <h4>🔄 プロセス分離</h4>
+                        <p>独立メモリ空間</p>
+                        <small>応用技術</small>
+                    </div>
+                    <div class="tech-node">
+                        <h4>📦 メモリアロケータ</h4>
+                        <p>動的メモリ管理</p>
+                        <small>上位技術</small>
+                    </div>
+                </div>
+
+                <div class="architecture-diagram">
+                    <h3>🏛️ x86_64メモリ管理アーキテクチャ</h3>
+                    <div class="page-table-hierarchy">
+                        <div class="page-level">
+                            <strong>CPU</strong><br>
+                            <small>仮想アドレス生成</small>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="page-level">
+                            <strong>MMU</strong><br>
+                            <small>アドレス変換</small>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="page-level current">
+                            <strong>CR3</strong><br>
+                            <small>ページテーブル参照</small>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="page-level">
+                            <strong>物理メモリ</strong><br>
+                            <small>実際のデータ</small>
+                        </div>
+                    </div>
+                    <p>CR3レジスタは、仮想アドレスから物理アドレスへの変換において中核的な役割を果たします</p>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎯 理解チェックポイント</div>
+                    <p>ページング機構がメモリ管理技術の中でどのような位置にあり、CR3レジスタがその中核を担っていることを理解できましたか？</p>
+                </div>
+            </section>
+
+            <!-- セクション2: 位置づけと必要性 -->
+            <section class="learning-section positioning" id="section-positioning">
+                <div class="section-header">
+                    <div class="section-icon">🎯</div>
+                    <div>
+                        <h2 class="section-title">位置づけと必要性</h2>
+                        <p class="section-subtitle">WasabiOSにおけるCR3レジスタの重要性</p>
+                    </div>
+                </div>
+
+                <div class="architecture-diagram">
+                    <h3>🏗️ WasabiOSメモリ管理アーキテクチャ</h3>
+                    <div style="text-align: left; padding: 20px;">
+                        <div style="margin: 10px 0; padding: 10px; background: rgba(78, 201, 176, 0.2); border-radius: 5px;">
+                            <strong>🔧 UEFI段階</strong><br>
+                            ファームウェアがページテーブルを設定 → CR3レジスタに格納
+                        </div>
+                        <div style="margin: 10px 0; padding: 10px; background: rgba(249, 199, 79, 0.2); border-radius: 5px;">
+                            <strong>🧠 カーネル初期化</strong><br>
+                            現在のCR3を読み取り → 既存のページテーブル構造を理解
+                        </div>
+                        <div style="margin: 10px 0; padding: 10px; background: rgba(197, 134, 192, 0.2); border-radius: 5px;">
+                            <strong>🚀 独自メモリ管理</strong><br>
+                            新しいページテーブルを構築 → CR3を更新して切り替え
+                        </div>
+                    </div>
+                </div>
+
+                <table class="comparison-table">
+                    <h3>⚖️ メモリ管理手法の比較</h3>
+                    <thead>
+                        <tr>
+                            <th>手法</th>
+                            <th>メリット</th>
+                            <th>デメリット</th>
+                            <th>適用場面</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>セグメンテーション</strong></td>
+                            <td>シンプル、高速</td>
+                            <td>フラグメンテーション、保護が弱い</td>
+                            <td>16bit時代のシステム</td>
+                        </tr>
+                        <tr style="background: rgba(249, 199, 79, 0.1);">
+                            <td><strong>ページング（CR3使用）</strong></td>
+                            <td>柔軟、強力な保護、仮想メモリ</td>
+                            <td>複雑、オーバーヘッド</td>
+                            <td>現代のOS（WasabiOS含む）</td>
+                        </tr>
+                        <tr>
+                            <td><strong>フラットメモリ</strong></td>
+                            <td>最高速度</td>
+                            <td>保護なし、分離不可</td>
+                            <td>組み込みシステム</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="code-explanation">
+                    <h3>🔗 CR3レジスタの本来の役割</h3>
+                    <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #4ec9b0; margin-bottom: 15px;">🤝 ファームウェア→OS間のインターフェース</h4>
+                        <p>CR3レジスタは、<strong>UEFIファームウェアとOSの間でページテーブル管理権を移譲するための仲介役</strong>です。</p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li><strong>バトンタッチの仕組み</strong>: ファームウェアが構築したページテーブルをOSが引き継ぐ</li>
+                            <li><strong>標準化されたインターフェース</strong>: x86_64アーキテクチャが提供する共通仕様</li>
+                            <li><strong>管理権の移譲</strong>: 「ここにページテーブルがあります」という情報の受け渡し</li>
+                        </ul>
+                    </div>
+
+                    <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">⚙️ CR3レジスタが提供する機能</h4>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li><strong>🎯 ページテーブルの場所指定</strong>: 現在使用中のページテーブルの物理アドレスを保持</li>
+                            <li><strong>🔄 メモリ空間の切り替え</strong>: CR3を変更することで異なるページテーブルに切り替え</li>
+                            <li><strong>🏗️ ページング機構の基盤</strong>: ページングシステム全体の起点となる</li>
+                            <li><strong>📍 ハードウェアサポート</strong>: CPUのMMUが自動的にCR3を参照してアドレス変換</li>
+                        </ul>
+                    </div>
+
+                    <div style="background: rgba(255, 255, 255, 0.1); border: 2px solid #666; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #d4d4d4; margin-bottom: 15px;">🚫 CR3レジスタがない場合の問題</h4>
+                        <p>CR3レジスタがなければ、<strong>ページング機構自体が実現できません</strong>：</p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>CPUがページテーブルの場所を知ることができない</li>
+                            <li>仮想アドレスから物理アドレスへの変換が不可能</li>
+                            <li>ファームウェアからOSへのメモリ管理移譲ができない</li>
+                            <li>結果として、フラットメモリモデルに限定される</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🛡️ ページング機構が解決する実際の問題</h3>
+                    <p><strong>CR3レジスタを基盤として、ページング機構が以下の重要な問題を解決します：</strong></p>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin: 20px 0;">
+                        <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #4ec9b0; margin-bottom: 10px;">🔒 メモリ保護</h4>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li>プロセス間でのメモリアクセスを制限</li>
+                                <li>不正なメモリアクセスを防止</li>
+                                <li>システムクラッシュの防止</li>
+                            </ul>
+                        </div>
+                        
+                        <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #007acc; margin-bottom: 10px;">🔄 プロセス分離</h4>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li>各プロセスが独立したメモリ空間を持つ</li>
+                                <li>プロセス間の干渉を防止</li>
+                                <li>マルチタスクの安全な実現</li>
+                            </ul>
+                        </div>
+                        
+                        <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #f9c74f; margin-bottom: 10px;">💾 仮想メモリ</h4>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li>物理メモリより大きなアドレス空間</li>
+                                <li>スワップ機能の実現</li>
+                                <li>メモリの効率的な利用</li>
+                            </ul>
+                        </div>
+                        
+                        <div style="background: rgba(197, 134, 192, 0.1); border: 2px solid #c586c0; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #c586c0; margin-bottom: 10px;">🛡️ カーネル保護</h4>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li>ユーザープロセスからカーネルメモリを保護</li>
+                                <li>特権レベルによるアクセス制御</li>
+                                <li>システムの安定性確保</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(244, 71, 71, 0.1); border: 2px solid #f44747; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f44747; margin-bottom: 15px;">⚠️ ページング機構がない場合の深刻な問題</h4>
+                        <p><strong>実際の問題例</strong>: ページング機構がない場合、プロセスAがプロセスBのメモリを直接読み書きできてしまい、以下の問題が発生します：</p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li><strong>データ漏洩</strong>: 他のプロセスの機密情報にアクセス可能</li>
+                            <li><strong>システムクラッシュ</strong>: 重要なシステムメモリの破壊</li>
+                            <li><strong>セキュリティ侵害</strong>: 悪意のあるプログラムによる攻撃</li>
+                            <li><strong>デバッグ困難</strong>: メモリ破壊の原因特定が困難</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎯 理解チェックポイント</div>
+                    <p>なぜWasabiOSでCR3レジスタとページングが必要なのか、他の手法と比べてどのような利点があるのかを説明できますか？</p>
+                </div>
+            </section>
+
+            <!-- セクション3: 実現技術 -->
+            <section class="learning-section implementation" id="section-implementation">
+                <div class="section-header">
+                    <div class="section-icon">⚙️</div>
+                    <div>
+                        <h2 class="section-title">実現技術</h2>
+                        <p class="section-subtitle">CR3レジスタの構造と実装詳細</p>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔧 CR3レジスタの構造</h3>
+                    <div class="register-diagram">
+                        <h4>CR3レジスタ（64bit）</h4>
+                        <div class="bit-field">
+                            <div class="bit-box flags">63</div>
+                            <div class="bit-box reserved">62-52</div>
+                            <div class="bit-box address">51-12</div>
+                            <div class="bit-box reserved">11-5</div>
+                            <div class="bit-box flags">4</div>
+                            <div class="bit-box flags">3</div>
+                            <div class="bit-box reserved">2-0</div>
+                        </div>
+                        <div style="margin-top: 15px;">
+                            <p><span style="background: #4ec9b0; color: #000; padding: 2px 5px; border-radius: 3px;">51-12</span> <strong>ページディレクトリベースアドレス</strong> (40bit)</p>
+                            <p><span style="background: #f9c74f; color: #000; padding: 2px 5px; border-radius: 3px;">4</span> <strong>PCD</strong> (Page-level Cache Disable)</p>
+                            <p><span style="background: #f9c74f; color: #000; padding: 2px 5px; border-radius: 3px;">3</span> <strong>PWT</strong> (Page-level Write-Through)</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-implementation">
+                    <h3>💻 WasabiOSでの実装</h3>
+                    <pre><code><span style="color: #569cd6;">// src/x86.rs</span>
+<span style="color: #c586c0;">pub type</span> <span style="color: #4ec9b0;">RootPageTable</span> = [<span style="color: #569cd6;">u8</span>; <span style="color: #b5cea8;">1024</span>];
+
+<span style="color: #c586c0;">pub fn</span> <span style="color: #dcdcaa;">read_cr3</span>() -> *<span style="color: #c586c0;">mut</span> <span style="color: #4ec9b0;">RootPageTable</span> {
+    <span style="color: #c586c0;">let mut</span> <span style="color: #9cdcfe;">cr3</span>: *<span style="color: #c586c0;">mut</span> <span style="color: #4ec9b0;">RootPageTable</span>;
+    <span style="color: #c586c0;">unsafe</span> {
+        <span style="color: #dcdcaa;">asm!</span>(<span style="color: #ce9178;">"mov rax, cr3"</span>,
+        <span style="color: #9cdcfe;">out</span>(<span style="color: #ce9178;">"rax"</span>) <span style="color: #9cdcfe;">cr3</span>)
+    }
+    <span style="color: #9cdcfe;">cr3</span>
+}
+
+<span style="color: #569cd6;">// src/main.rs での使用例</span>
+<span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">cr3</span> = <span style="color: #4ec9b0;">wasabi</span>::<span style="color: #4ec9b0;">x86</span>::<span style="color: #dcdcaa;">read_cr3</span>();
+<span style="color: #dcdcaa;">println!</span>(<span style="color: #ce9178;">"cr3 = {cr3:#p}"</span>);
+<span style="color: #dcdcaa;">hexdump</span>(<span style="color: #c586c0;">unsafe</span> { &*<span style="color: #9cdcfe;">cr3</span> });</code></pre>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔍 実行結果の詳細解析</h3>
+                    <div class="hexdump-container">
+                        <div class="hexdump-line">
+                            <span class="hex-address">出力結果:</span>
+                            <span class="hex-data">cr3 = 0x00000000bfc01000</span>
+                        </div>
+                        <div style="margin: 15px 0; padding: 10px; background: rgba(78, 201, 176, 0.1); border-radius: 5px;">
+                            <strong>アドレス解析:</strong><br>
+                            • 物理アドレス: <code>0xbfc01000</code><br>
+                            • ページ境界: 4KB境界（下位12bitが0）<br>
+                            • メモリ領域: UEFI管理領域内
+                        </div>
+                        
+                        <div class="hexdump-line">
+                            <span class="hex-address">00000000:</span>
+                            <span class="hex-data"><span class="highlight-entry">2320c0bf00000000</span>0000000000000000</span>
+                            <span class="hex-ascii">|# ..............|</span>
+                        </div>
+                        <div class="hexdump-line">
+                            <span class="hex-address">00000010:</span>
+                            <span class="hex-data">00000000000000000000000000000000</span>
+                            <span class="hex-ascii">|................|</span>
+                        </div>
+                        <div style="margin: 15px 0; padding: 10px; background: rgba(249, 199, 79, 0.1); border-radius: 5px;">
+                            <strong>ページテーブルエントリ解析:</strong><br>
+                            • <code>2320c0bf00000000</code> = 最初のページテーブルエントリ<br>
+                            • リトルエンディアン: <code>0x00000000bfc02023</code><br>
+                            • 物理アドレス: <code>0xbfc02000</code> (次レベルのページテーブル)<br>
+                            • フラグ: <code>0x23</code> (Present, Writable, User)
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🏗️ 4レベルページング階層</h3>
+                    <div class="page-table-hierarchy">
+                        <div class="page-level current">
+                            <strong>PML4</strong><br>
+                            <small>CR3が指す</small><br>
+                            <code>0xbfc01000</code>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="page-level">
+                            <strong>PDPT</strong><br>
+                            <small>Page Directory Pointer</small><br>
+                            <code>0xbfc02000</code>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="page-level">
+                            <strong>PD</strong><br>
+                            <small>Page Directory</small><br>
+                            <code>次のレベル</code>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="page-level">
+                            <strong>PT</strong><br>
+                            <small>Page Table</small><br>
+                            <code>物理ページ</code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔍 ページディレクトリとは何か</h3>
+                    <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #4ec9b0; margin-bottom: 15px;">📚 基本概念</h4>
+                        <p><strong>ページディレクトリ</strong>は、仮想アドレスから物理アドレスへの変換を管理する「住所録」のような存在です。</p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li><strong>階層構造</strong>: 巨大なアドレス空間を効率的に管理するため、4つのレベルに分割</li>
+                            <li><strong>テーブルの集合</strong>: 各レベルが「テーブル」として機能し、次のレベルを指す</li>
+                            <li><strong>エントリベース</strong>: 各テーブルは複数の「エントリ」から構成される</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">🏗️ なぜ階層構造が必要なのか</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 15px 0;">
+                            <div>
+                                <h5 style="color: #f44747;">❌ フラット構造の問題</h5>
+                                <ul style="font-size: 0.9rem;">
+                                    <li>64bitアドレス空間 = 2^64 = 18エクサバイト</li>
+                                    <li>1つのテーブルで管理 = 2^52個のエントリ必要</li>
+                                    <li>メモリ使用量 = 32ペタバイト（現実的でない）</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h5 style="color: #4ec9b0;">✅ 階層構造の利点</h5>
+                                <ul style="font-size: 0.9rem;">
+                                    <li>使用する部分のみテーブルを作成</li>
+                                    <li>メモリ使用量を大幅削減</li>
+                                    <li>動的な拡張が可能</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🎯 各レベルの詳細解説</h3>
+                    
+                    <div style="margin: 20px 0;">
+                        <div style="background: rgba(78, 201, 176, 0.1); border-left: 4px solid #4ec9b0; padding: 15px; margin: 10px 0;">
+                            <h4 style="color: #4ec9b0;">🥇 PML4 (Page Map Level 4) - 最上位レベル</h4>
+                            
+                            <div style="background: rgba(255, 255, 255, 0.1); border-radius: 5px; padding: 15px; margin: 10px 0;">
+                                <h5 style="color: #4ec9b0; margin-bottom: 10px;">📏 テーブルの物理的構造</h5>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    <li><strong>エントリ数</strong>: 512個</li>
+                                    <li><strong>1エントリのサイズ</strong>: 8バイト（64bit）</li>
+                                    <li><strong>テーブル全体のサイズ</strong>: 512 × 8バイト = 4KB（1ページ）</li>
+                                    <li><strong>実際の配置例</strong>: WasabiOSでは <code>0xbfc01000</code> に配置</li>
+                                </ul>
+                            </div>
+
+                            <div style="background: rgba(249, 199, 79, 0.1); border-radius: 5px; padding: 15px; margin: 10px 0;">
+                                <h5 style="color: #f9c74f; margin-bottom: 10px;">🗺️ 仮想アドレス空間の分割</h5>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    <li><strong>役割</strong>: 全体のアドレス空間（256TB）を512個の領域に分割</li>
+                                    <li><strong>1エントリが管理する範囲</strong>: 512GB（2^39バイト）の仮想アドレス空間</li>
+                                    <li><strong>計算</strong>: 256TB ÷ 512エントリ = 512GB/エントリ</li>
+                                </ul>
+                                
+                                <div style="font-family: monospace; background: #0d1117; padding: 10px; border-radius: 3px; margin: 10px 0; font-size: 0.85rem;">
+                                    <div style="color: #569cd6;">具体的な分割例:</div>
+                                    <div style="color: #4ec9b0;">PML4[0]: 0x000000000000 ～ 0x007FFFFFFFFF (512GB)</div>
+                                    <div style="color: #4ec9b0;">PML4[1]: 0x008000000000 ～ 0x00FFFFFFFFFF (512GB)</div>
+                                    <div style="color: #4ec9b0;">PML4[2]: 0x010000000000 ～ 0x017FFFFFFFFF (512GB)</div>
+                                    <div style="color: #888;">...</div>
+                                    <div style="color: #4ec9b0;">PML4[511]: 最後の512GB領域</div>
+                                </div>
+                            </div>
+
+                            <div style="background: rgba(0, 122, 204, 0.1); border-radius: 5px; padding: 15px; margin: 10px 0;">
+                                <h5 style="color: #007acc; margin-bottom: 10px;">🔗 重要なポイント</h5>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    <li><strong>エントリ自体</strong>: 8バイトの物理的なデータ</li>
+                                    <li><strong>エントリが管理する範囲</strong>: 512GBの仮想アドレス空間</li>
+                                    <li><strong>CR3との関係</strong>: CR3レジスタがこのテーブルの物理アドレスを保持</li>
+                                    <li><strong>次レベルへの参照</strong>: 各エントリは対応するPDPTテーブルのアドレスを保持</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div style="background: rgba(0, 122, 204, 0.1); border-left: 4px solid #007acc; padding: 15px; margin: 10px 0;">
+                            <h4 style="color: #007acc;">🥈 PDPT (Page Directory Pointer Table) - 第2レベル</h4>
+                            
+                            <div style="background: rgba(255, 255, 255, 0.1); border-radius: 5px; padding: 15px; margin: 10px 0;">
+                                <h5 style="color: #007acc; margin-bottom: 10px;">📏 テーブルの物理的構造</h5>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    <li><strong>エントリ数</strong>: 512個</li>
+                                    <li><strong>1エントリのサイズ</strong>: 8バイト（64bit）</li>
+                                    <li><strong>テーブル全体のサイズ</strong>: 512 × 8バイト = 4KB（1ページ）</li>
+                                    <li><strong>実際の配置例</strong>: WasabiOSでは <code>0xbfc02000</code> に配置</li>
+                                </ul>
+                            </div>
+
+                            <div style="background: rgba(249, 199, 79, 0.1); border-radius: 5px; padding: 15px; margin: 10px 0;">
+                                <h5 style="color: #f9c74f; margin-bottom: 10px;">🗺️ 仮想アドレス空間の分割</h5>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    <li><strong>役割</strong>: PML4の各エントリが指す、より細かい領域管理</li>
+                                    <li><strong>1エントリが管理する範囲</strong>: 1GB（2^30バイト）の仮想アドレス空間</li>
+                                    <li><strong>計算</strong>: 512GB ÷ 512エントリ = 1GB/エントリ</li>
+                                    <li><strong>上位との関係</strong>: PML4のエントリがこのテーブルを指す</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div style="background: rgba(249, 199, 79, 0.1); border-left: 4px solid #f9c74f; padding: 15px; margin: 10px 0;">
+                            <h4 style="color: #f9c74f;">🥉 PD (Page Directory) - 第3レベル</h4>
+                            
+                            <div style="background: rgba(255, 255, 255, 0.1); border-radius: 5px; padding: 15px; margin: 10px 0;">
+                                <h5 style="color: #f9c74f; margin-bottom: 10px;">📏 テーブルの物理的構造</h5>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    <li><strong>エントリ数</strong>: 512個</li>
+                                    <li><strong>1エントリのサイズ</strong>: 8バイト（64bit）</li>
+                                    <li><strong>テーブル全体のサイズ</strong>: 512 × 8バイト = 4KB（1ページ）</li>
+                                </ul>
+                            </div>
+
+                            <div style="background: rgba(0, 122, 204, 0.1); border-radius: 5px; padding: 15px; margin: 10px 0;">
+                                <h5 style="color: #007acc; margin-bottom: 10px;">🗺️ 仮想アドレス空間の分割</h5>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    <li><strong>役割</strong>: PDPTの各エントリが指す、さらに細かい領域管理</li>
+                                    <li><strong>1エントリが管理する範囲</strong>: 2MB（2^21バイト）の仮想アドレス空間</li>
+                                    <li><strong>計算</strong>: 1GB ÷ 512エントリ = 2MB/エントリ</li>
+                                    <li><strong>特徴</strong>: 大きなページ（2MBページ）として直接使用も可能</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div style="background: rgba(197, 134, 192, 0.1); border-left: 4px solid #c586c0; padding: 15px; margin: 10px 0;">
+                            <h4 style="color: #c586c0;">🏁 PT (Page Table) - 最下位レベル</h4>
+                            
+                            <div style="background: rgba(255, 255, 255, 0.1); border-radius: 5px; padding: 15px; margin: 10px 0;">
+                                <h5 style="color: #c586c0; margin-bottom: 10px;">📏 テーブルの物理的構造</h5>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    <li><strong>エントリ数</strong>: 512個</li>
+                                    <li><strong>1エントリのサイズ</strong>: 8バイト（64bit）</li>
+                                    <li><strong>テーブル全体のサイズ</strong>: 512 × 8バイト = 4KB（1ページ）</li>
+                                </ul>
+                            </div>
+
+                            <div style="background: rgba(78, 201, 176, 0.1); border-radius: 5px; padding: 15px; margin: 10px 0;">
+                                <h5 style="color: #4ec9b0; margin-bottom: 10px;">🗺️ 最終的なページマッピング</h5>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    <li><strong>役割</strong>: 実際の4KBページへの最終的なマッピング</li>
+                                    <li><strong>1エントリが管理する範囲</strong>: 4KB（2^12バイト）の物理ページ</li>
+                                    <li><strong>計算</strong>: 2MB ÷ 512エントリ = 4KB/エントリ</li>
+                                    <li><strong>最終目標</strong>: 物理メモリの実際のページを指す</li>
+                                    <li><strong>エントリ内容</strong>: 物理ページアドレス + アクセス権限フラグ</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>📊 統一された512エントリ構造</h3>
+                    <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #4ec9b0; margin-bottom: 15px;">🔢 なぜ全レベルで512エントリなのか</h4>
+                        <p>x86_64の4レベルページングでは、<strong>すべてのレベルで統一して512エントリ</strong>を持ちます。</p>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">各レベルの統一構造:</div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 0.9rem;">
+                                <div style="color: #4ec9b0;">PML4: 512エントリ × 8B = 4KB</div>
+                                <div style="color: #007acc;">PDPT: 512エントリ × 8B = 4KB</div>
+                                <div style="color: #f9c74f;">PD: 512エントリ × 8B = 4KB</div>
+                                <div style="color: #c586c0;">PT: 512エントリ × 8B = 4KB</div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #4ec9b0; margin-bottom: 10px;">🎯 設計上の利点</h5>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li><strong>統一性</strong>: すべてのテーブルが1ページ（4KB）に収まる</li>
+                                <li><strong>効率性</strong>: 各レベルで9bit（2^9 = 512）のインデックスを使用</li>
+                                <li><strong>対称性</strong>: ハードウェア実装が簡潔になる</li>
+                                <li><strong>メモリ効率</strong>: 必要な分だけテーブルを作成可能</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">🧮 管理範囲の計算</h4>
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">各レベルの管理範囲:</div>
+                            <div style="font-size: 0.9rem; line-height: 1.8;">
+                                <div style="color: #c586c0;"><strong>PT</strong>: 512エントリ × 4KB = 2MB</div>
+                                <div style="color: #f9c74f;"><strong>PD</strong>: 512エントリ × 2MB = 1GB</div>
+                                <div style="color: #007acc;"><strong>PDPT</strong>: 512エントリ × 1GB = 512GB</div>
+                                <div style="color: #4ec9b0;"><strong>PML4</strong>: 512エントリ × 512GB = 256TB</div>
+                            </div>
+                            <div style="color: #608b4e; margin-top: 10px; font-size: 0.85rem;">
+                                ↑ 各レベルで512倍ずつ管理範囲が拡大
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #007acc; margin-bottom: 15px;">🔍 仮想アドレスとの対応</h4>
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">64bit仮想アドレスの分割:</div>
+                            <div style="font-size: 0.85rem; line-height: 1.6;">
+                                <div style="color: #888;">[63-48: 未使用 16bit]</div>
+                                <div style="color: #4ec9b0;">[47-39: PML4インデックス 9bit] → 0-511 (512通り)</div>
+                                <div style="color: #007acc;">[38-30: PDPTインデックス 9bit] → 0-511 (512通り)</div>
+                                <div style="color: #f9c74f;">[29-21: PDインデックス 9bit] → 0-511 (512通り)</div>
+                                <div style="color: #c586c0;">[20-12: PTインデックス 9bit] → 0-511 (512通り)</div>
+                                <div style="color: #608b4e;">[11-0: ページ内オフセット 12bit] → 0-4095 (4KB)</div>
+                            </div>
+                        </div>
+                        <p style="margin: 10px 0; font-size: 0.9rem;">各レベルで9bitずつ使用することで、512エントリの完全活用が可能になります。</p>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔄 アドレス変換の完全な流れ</h3>
+                    <div style="background: #1a1a1a; border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #4ec9b0; margin-bottom: 15px;">📍 仮想アドレスの分解</h4>
+                        <div style="font-family: monospace; background: #0d1117; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                            <div style="color: #569cd6;">64bit仮想アドレス: 0x0000_7fff_ffff_f000</div>
+                            <div style="margin: 10px 0; font-size: 0.9rem;">
+                                <span style="color: #f44747;">63-48:</span> <span style="color: #888;">未使用 (0x0000)</span><br>
+                                <span style="color: #4ec9b0;">47-39:</span> <span style="color: #4ec9b0;">PML4インデックス (0x0ff)</span><br>
+                                <span style="color: #007acc;">38-30:</span> <span style="color: #007acc;">PDPTインデックス (0x1ff)</span><br>
+                                <span style="color: #f9c74f;">29-21:</span> <span style="color: #f9c74f;">PDインデックス (0x1ff)</span><br>
+                                <span style="color: #c586c0;">20-12:</span> <span style="color: #c586c0;">PTインデックス (0x1ff)</span><br>
+                                <span style="color: #608b4e;">11-0:</span> <span style="color: #608b4e;">ページ内オフセット (0x000)</span>
+                            </div>
+                        </div>
+
+                        <h4 style="color: #4ec9b0; margin: 20px 0 15px 0;">🔄 変換手順</h4>
+                        <div style="margin: 15px 0;">
+                            <div style="background: rgba(78, 201, 176, 0.1); padding: 10px; border-radius: 5px; margin: 5px 0;">
+                                <strong>ステップ1:</strong> CR3レジスタからPML4テーブルのアドレスを取得
+                            </div>
+                            <div style="background: rgba(0, 122, 204, 0.1); padding: 10px; border-radius: 5px; margin: 5px 0;">
+                                <strong>ステップ2:</strong> PML4インデックス(47-39bit)でPML4エントリを参照 → PDPTアドレス取得
+                            </div>
+                            <div style="background: rgba(249, 199, 79, 0.1); padding: 10px; border-radius: 5px; margin: 5px 0;">
+                                <strong>ステップ3:</strong> PDPTインデックス(38-30bit)でPDPTエントリを参照 → PDアドレス取得
+                            </div>
+                            <div style="background: rgba(197, 134, 192, 0.1); padding: 10px; border-radius: 5px; margin: 5px 0;">
+                                <strong>ステップ4:</strong> PDインデックス(29-21bit)でPDエントリを参照 → PTアドレス取得
+                            </div>
+                            <div style="background: rgba(96, 139, 78, 0.1); padding: 10px; border-radius: 5px; margin: 5px 0;">
+                                <strong>ステップ5:</strong> PTインデックス(20-12bit)でPTエントリを参照 → 物理ページアドレス取得
+                            </div>
+                            <div style="background: rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 5px; margin: 5px 0;">
+                                <strong>ステップ6:</strong> 物理ページアドレス + ページ内オフセット(11-0bit) = 最終物理アドレス
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔍 実装のポイント</h3>
+                    <ul>
+                        <li><strong>🔒 unsafe使用</strong>: CR3は特権レジスタのため、unsafeブロックが必要</li>
+                        <li><strong>⚡ インラインアセンブリ</strong>: Rustから直接x86命令を実行</li>
+                        <li><strong>📏 型安全性</strong>: RootPageTable型でページテーブルのサイズを保証</li>
+                        <li><strong>🎯 ポインタ操作</strong>: 物理アドレスを直接操作するため生ポインタを使用</li>
+                        <li><strong>🔄 エンディアン考慮</strong>: x86_64はリトルエンディアンのため、バイト順序に注意</li>
+                    </ul>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔬 hexdump解析の超詳細解説</h3>
+                    
+                    <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #007acc; margin-bottom: 15px;">🔍 hexdump関数とは何か</h4>
+                        <p><strong>hexdump関数</strong>は、メモリの内容をバイト単位で16進数表示する関数です。</p>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">WasabiOSでの呼び出し:</div>
+                            <div style="color: #dcdcaa;">hexdump</div><div style="color: #d4d4d4;">(</div><div style="color: #c586c0;">unsafe</div><div style="color: #d4d4d4;"> { &*</div><div style="color: #9cdcfe;">cr3</div><div style="color: #d4d4d4;"> })</div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #007acc; margin-bottom: 10px;">🎯 この呼び出しが何をしているか</h5>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li><strong>cr3</strong>: <code>*mut RootPageTable</code>型（<code>[u8; 1024]</code>への生ポインタ）</li>
+                                <li><strong>&*cr3</strong>: 生ポインタを参照に変換（<code>&[u8; 1024]</code>）</li>
+                                <li><strong>unsafe</strong>: 生ポインタの参照外しは安全性が保証されないため</li>
+                                <li><strong>hexdump</strong>: 1024バイトのメモリ内容を16進数で表示</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">📋 hexdump出力形式の詳細</h4>
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">出力形式:</div>
+                            <div style="font-size: 0.9rem; line-height: 1.6;">
+                                <div style="color: #4ec9b0;">00000000: </div><div style="color: #d4d4d4;">2320c0bf00000000</div><div style="color: #f9c74f;">0000000000000000</div><div style="color: #608b4e;">|# ..............|</div><br>
+                                <div style="color: #888;">↑オフセット  ↑16進データ（16バイト）                    ↑ASCII表示</div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #f9c74f; margin-bottom: 10px;">🔍 各部分の説明</h5>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li><strong>00000000:</strong> メモリオフセット（開始位置からの距離）</li>
+                                <li><strong>2320c0bf00000000...</strong> 16バイト分の16進データ（各バイトを2桁で表示）</li>
+                                <li><strong>|# ..............|</strong> ASCII表示（印刷可能文字は文字、それ以外は'.'）</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #4ec9b0; margin-bottom: 15px;">📚 ページテーブルエントリとは何か</h4>
+                        <p><strong>ページテーブルエントリ</strong>は、ページテーブル内の1つの「行」で、64bit（8バイト）のデータ構造です。</p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li><strong>住所録の1行</strong>: 「この仮想アドレス範囲は、あの物理アドレスにある」という情報</li>
+                            <li><strong>アドレス + 属性</strong>: 物理アドレス（52bit）+ アクセス権限フラグ（12bit）</li>
+                            <li><strong>階層の橋渡し</strong>: 上位レベルでは「次のテーブルの場所」、最下位では「実際のページの場所」</li>
+                        </ul>
+
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">重要なポイント:</div>
+                            <div style="color: #d4d4d4; font-size: 0.9rem;">
+                                hexdumpの最初の8バイト = 最初のページテーブルエントリ<br>
+                                <span style="color: #f9c74f;">2320c0bf00000000</span> ← これが1つのエントリ（64bit）
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: #1a1a1a; border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">🔍 ページテーブルエントリの構造（64bit）</h4>
+                        <div style="font-family: monospace; background: #0d1117; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">ビット配置:</div>
+                            <div style="font-size: 0.9rem; line-height: 1.6;">
+                                <span style="color: #f44747;">63:</span> <span style="color: #f44747;">XD (Execute Disable)</span><br>
+                                <span style="color: #888;">62-52:</span> <span style="color: #888;">予約済み</span><br>
+                                <span style="color: #4ec9b0;">51-12:</span> <span style="color: #4ec9b0;">物理アドレス (40bit)</span><br>
+                                <span style="color: #888;">11-9:</span> <span style="color: #888;">利用可能</span><br>
+                                <span style="color: #f9c74f;">8:</span> <span style="color: #f9c74f;">G (Global)</span><br>
+                                <span style="color: #f9c74f;">7:</span> <span style="color: #f9c74f;">PS (Page Size)</span><br>
+                                <span style="color: #f9c74f;">6:</span> <span style="color: #f9c74f;">D (Dirty)</span><br>
+                                <span style="color: #f9c74f;">5:</span> <span style="color: #f9c74f;">A (Accessed)</span><br>
+                                <span style="color: #f9c74f;">4:</span> <span style="color: #f9c74f;">PCD (Cache Disable)</span><br>
+                                <span style="color: #f9c74f;">3:</span> <span style="color: #f9c74f;">PWT (Write-Through)</span><br>
+                                <span style="color: #f9c74f;">2:</span> <span style="color: #f9c74f;">U/S (User/Supervisor)</span><br>
+                                <span style="color: #f9c74f;">1:</span> <span style="color: #f9c74f;">R/W (Read/Write)</span><br>
+                                <span style="color: #f9c74f;">0:</span> <span style="color: #f9c74f;">P (Present)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">🔄 リトルエンディアンの影響</h4>
+                        <p><strong>x86_64はリトルエンディアン</strong>のため、メモリ上では最下位バイトが最初に格納されます。</p>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">例: 64bit値 0x00000000bfc02023 の格納</div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 10px 0;">
+                                <div>
+                                    <div style="color: #4ec9b0;">論理的な値:</div>
+                                    <div style="font-size: 0.9rem;">
+                                        0x00000000bfc02023
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="color: #f9c74f;">メモリ上の配置:</div>
+                                    <div style="font-size: 0.9rem;">
+                                        23 20 c0 bf 00 00 00 00
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="color: #608b4e; font-size: 0.9rem; margin-top: 10px;">
+                                ↑ これがhexdumpで「2320c0bf00000000」として表示される
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #007acc; margin-bottom: 15px;">🎯 実際の解析手順</h4>
+                        <p>WasabiOSの出力 <code>2320c0bf00000000</code> を段階的に解読してみましょう。</p>
+                        
+                        <div style="margin: 15px 0;">
+                            <div style="background: rgba(78, 201, 176, 0.1); padding: 10px; border-radius: 5px; margin: 5px 0;">
+                                <strong>ステップ1: バイト順序の修正</strong><br>
+                                <code>2320c0bf00000000</code> → <code>0x00000000bfc02023</code>
+                                <div style="font-family: monospace; font-size: 0.85rem; margin-top: 5px; color: #888;">
+                                    リトルエンディアン: 23 20 c0 bf 00 00 00 00<br>
+                                    ビッグエンディアン: 00 00 00 00 bf c0 20 23
+                                </div>
+                            </div>
+                            
+                            <div style="background: rgba(249, 199, 79, 0.1); padding: 10px; border-radius: 5px; margin: 5px 0;">
+                                <strong>ステップ2: 物理アドレス部分の抽出</strong><br>
+                                <code>0x00000000bfc02023</code> & <code>0xfffffffffffff000</code> = <code>0x00000000bfc02000</code>
+                                <div style="margin-top: 10px;">
+                                    <strong>🔍 マスクの詳細解析:</strong><br>
+                                    <div style="font-family: monospace; font-size: 0.85rem; background: #0d1117; padding: 10px; border-radius: 3px; margin: 5px 0;">
+                                        <div style="color: #569cd6;">ビット表現での計算:</div>
+                                        <div style="color: #d4d4d4;">元の値: 0x00000000bfc02023</div>
+                                        <div style="color: #f9c74f;">マスク: 0xfffffffffffff000</div>
+                                        <div style="color: #888;">      ↑51-12bit目が1、11-0bit目が0</div><br>
+                                        <div style="color: #4ec9b0;">結果: 0x00000000bfc02000</div>
+                                        <div style="color: #888;">      ↑下位12bitが0になり、4KB境界に</div>
+                                    </div>
+                                    <strong>なぜこのマスクなのか:</strong><br>
+                                    • ページテーブルエントリの51-12bit = 物理アドレス<br>
+                                    • 0xfffffffffffff000 = 51-12bitが1、11-0bitが0<br>
+                                    • AND演算で物理アドレス部分のみ抽出
+                                </div>
+                            </div>
+                            
+                            <div style="background: rgba(197, 134, 192, 0.1); padding: 10px; border-radius: 5px; margin: 5px 0;">
+                                <strong>ステップ3: フラグ部分の抽出</strong><br>
+                                <code>0x00000000bfc02023</code> & <code>0x0000000000000fff</code> = <code>0x023</code>
+                                <div style="margin-top: 10px;">
+                                    <strong>🔍 マスクの詳細解析:</strong><br>
+                                    <div style="font-family: monospace; font-size: 0.85rem; background: #0d1117; padding: 10px; border-radius: 3px; margin: 5px 0;">
+                                        <div style="color: #569cd6;">ビット表現での計算:</div>
+                                        <div style="color: #d4d4d4;">元の値: 0x00000000bfc02023</div>
+                                        <div style="color: #f9c74f;">マスク: 0x0000000000000fff</div>
+                                        <div style="color: #888;">      ↑11-0bit目が1、それ以外が0</div><br>
+                                        <div style="color: #4ec9b0;">結果: 0x000000000000023</div>
+                                        <div style="color: #888;">      ↑下位12bitのフラグ部分のみ</div>
+                                    </div>
+                                    <strong>なぜこのマスクなのか:</strong><br>
+                                    • ページテーブルエントリの11-0bit = フラグ<br>
+                                    • 0x0000000000000fff = 11-0bitが1、それ以外が0<br>
+                                    • AND演算でフラグ部分のみ抽出
+                                </div>
+                            </div>
+                            
+                            <div style="background: rgba(96, 139, 78, 0.1); padding: 10px; border-radius: 5px; margin: 5px 0;">
+                                <strong>ステップ4: フラグの詳細解析</strong><br>
+                                <code>0x023</code> = <code>0b00100011</code>
+                                <div style="font-family: monospace; font-size: 0.85rem; background: #0d1117; padding: 10px; border-radius: 3px; margin: 5px 0;">
+                                    <div style="color: #569cd6;">ビット分解:</div>
+                                    <div style="color: #d4d4d4;">0x023 = 0b00100011</div>
+                                    <div style="color: #888;">        |||||||└─ bit 0 (P): 1</div>
+                                    <div style="color: #888;">        ||||||└── bit 1 (R/W): 1</div>
+                                    <div style="color: #888;">        |||||└─── bit 2 (U/S): 0</div>
+                                    <div style="color: #888;">        ||||└──── bit 3 (PWT): 0</div>
+                                    <div style="color: #888;">        |||└───── bit 4 (PCD): 0</div>
+                                    <div style="color: #888;">        ||└────── bit 5 (A): 1</div>
+                                    <div style="color: #888;">        |└─────── bit 6 (D): 0</div>
+                                    <div style="color: #888;">        └──────── bit 7 (PS): 0</div>
+                                </div>
+                                <strong>フラグの意味:</strong><br>
+                                • bit 0 (P): 1 = Present（存在する）<br>
+                                • bit 1 (R/W): 1 = Writable（書き込み可能）<br>
+                                • bit 2 (U/S): 0 = Supervisor（カーネルレベル）<br>
+                                • bit 5 (A): 1 = Accessed（アクセス済み）
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(255, 255, 255, 0.1); border: 2px solid #666; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #d4d4d4; margin-bottom: 15px;">🧮 ビットマスク操作の原理</h4>
+                        <p><strong>なぜビットマスクで正確に分離できるのか</strong>を詳しく解説します。</p>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">64bitページテーブルエントリの構造:</div>
+                            <div style="font-size: 0.85rem; line-height: 1.8;">
+                                <div style="color: #888;">63  62-52  51-12                    11-0</div>
+                                <div style="color: #d4d4d4;">|XD |予約 |物理アドレス(40bit)      |フラグ(12bit)|</div>
+                                <div style="color: #888;">|   |     |                        |            |</div>
+                                <div style="color: #f44747;">1   11     40                      12 = 64bit</div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #d4d4d4; margin-bottom: 10px;">🎯 物理アドレス抽出マスク</h5>
+                            <div style="background: #0d1117; padding: 10px; border-radius: 3px; font-family: monospace; font-size: 0.85rem;">
+                                <div style="color: #f9c74f;">0xfffffffffffff000の構造:</div>
+                                <div style="color: #d4d4d4;">1111111111111111111111111111111111111111000000000000</div>
+                                <div style="color: #888;">↑51-12bit目が1                    ↑11-0bit目が0</div><br>
+                                <div style="color: #4ec9b0;">効果: 物理アドレス部分(51-12bit)のみ残し、フラグ部分(11-0bit)を0にする</div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #d4d4d4; margin-bottom: 10px;">🎯 フラグ抽出マスク</h5>
+                            <div style="background: #0d1117; padding: 10px; border-radius: 3px; font-family: monospace; font-size: 0.85rem;">
+                                <div style="color: #f9c74f;">0x0000000000000fffの構造:</div>
+                                <div style="color: #d4d4d4;">0000000000000000000000000000000000000000111111111111</div>
+                                <div style="color: #888;">↑51-12bit目が0                    ↑11-0bit目が1</div><br>
+                                <div style="color: #4ec9b0;">効果: フラグ部分(11-0bit)のみ残し、物理アドレス部分(51-12bit)を0にする</div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #d4d4d4; margin-bottom: 10px;">⚙️ AND演算の動作原理</h5>
+                            <div style="background: #0d1117; padding: 10px; border-radius: 3px; font-family: monospace; font-size: 0.85rem;">
+                                <div style="color: #569cd6;">AND演算の真理値表:</div>
+                                <div style="color: #d4d4d4;">0 & 0 = 0  |  0 & 1 = 0</div>
+                                <div style="color: #d4d4d4;">1 & 0 = 0  |  1 & 1 = 1</div><br>
+                                <div style="color: #4ec9b0;">つまり: マスクが1の部分のみ元の値が残り、0の部分は強制的に0になる</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(197, 134, 192, 0.1); border: 2px solid #c586c0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #c586c0; margin-bottom: 15px;">🔗 エントリが示す意味</h4>
+                        <p>解析結果から分かること：</p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li><strong>次のレベルの場所</strong>: PDPTテーブルが物理アドレス <code>0xbfc02000</code> にある</li>
+                            <li><strong>アクセス権限</strong>: カーネルレベルで読み書き可能</li>
+                            <li><strong>使用状況</strong>: 既にアクセスされている（Accessedフラグ）</li>
+                            <li><strong>階層の意味</strong>: これはPML4の最初のエントリで、仮想アドレス空間の最初の512GB領域を管理</li>
+                        </ul>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6;">実際の意味:</div>
+                            <div style="color: #d4d4d4; font-size: 0.9rem; margin: 5px 0;">
+                                「仮想アドレス 0x0000000000000000 ～ 0x0000007fffffffff の範囲は、<br>
+                                 物理アドレス 0xbfc02000 にあるPDPTテーブルで管理されている」
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(255, 255, 255, 0.1); border: 2px solid #666; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #d4d4d4; margin-bottom: 15px;">🧮 計算の確認</h4>
+                        <div style="font-family: monospace; font-size: 0.9rem;">
+                            <div style="color: #4ec9b0;">元のhexdump: 2320c0bf00000000</div>
+                            <div style="color: #f9c74f;">バイト分解: 23 20 c0 bf 00 00 00 00</div>
+                            <div style="color: #007acc;">リトルエンディアン変換:</div>
+                            <div style="margin-left: 20px;">
+                                00 00 00 00 bf c0 20 23<br>
+                                = 0x00000000bfc02023
+                            </div>
+                            <div style="color: #c586c0;">物理アドレス: 0xbfc02023 & 0xfffff000 = 0xbfc02000</div>
+                            <div style="color: #608b4e;">フラグ: 0xbfc02023 & 0x000000fff = 0x023</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎯 理解チェックポイント</div>
+                    <p>CR3レジスタの構造と、WasabiOSでの読み取り実装、そして実際の出力結果の意味を理解できましたか？</p>
+                </div>
+            </section>
+
+            <!-- セクション4: 学習の完結 -->
+            <section class="learning-section conclusion" id="section-conclusion">
+                <div class="section-header">
+                    <div class="section-icon">🔗</div>
+                    <div>
+                        <h2 class="section-title">学習の完結</h2>
+                        <p class="section-subtitle">要点整理と次のステップ</p>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>📝 学習内容の要点</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin: 20px 0;">
+                        <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #4ec9b0; margin-bottom: 10px;">🧠 CR3レジスタの役割</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>ページディレクトリのベースアドレスを保持</li>
+                                <li>仮想アドレス変換の起点となる</li>
+                                <li>プロセス切り替え時のメモリ空間切り替え</li>
+                            </ul>
+                        </div>
+                        <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #f9c74f; margin-bottom: 10px;">⚙️ ページング機構</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>4レベル階層構造（PML4→PDPT→PD→PT）</li>
+                                <li>仮想メモリと物理メモリの分離</li>
+                                <li>メモリ保護とプロセス分離の実現</li>
+                            </ul>
+                        </div>
+                        <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #007acc; margin-bottom: 10px;">🔧 実装技術</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>インラインアセンブリでのレジスタアクセス</li>
+                                <li>unsafe Rustでの低レベル操作</li>
+                                <li>ページテーブルエントリの解析方法</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="next-steps">
+                    <h3>🚀 次のステップ</h3>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🔥 ページフォルト処理</div>
+                        <p>ページフォルト例外の処理機構を学習し、オンデマンドページングやスワップ機能の実装を理解する</p>
+                        <small>推奨学習順序: 2番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🏗️ 独自ページテーブル構築</div>
+                        <p>WasabiOS独自のページテーブルを構築し、UEFIから独立したメモリ管理システムを実装する</p>
+                        <small>推奨学習順序: 3番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">⚡ TLB管理と最適化</div>
+                        <p>Translation Lookaside Bufferの管理とページテーブル変更時のTLBフラッシュ処理を学習する</p>
+                        <small>推奨学習順序: 4番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">📦 メモリアロケータ</div>
+                        <p>ページングを基盤とした動的メモリ管理システム（ヒープアロケータ）の実装を学習する</p>
+                        <small>推奨学習順序: 5番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🔄 プロセス管理</div>
+                        <p>ページングを活用したプロセス分離とコンテキストスイッチの実装を学習する</p>
+                        <small>推奨学習順序: 6番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🛡️ メモリ保護機能</div>
+                        <p>ページレベルでのアクセス制御（読み取り専用、実行禁止など）の実装を学習する</p>
+                        <small>推奨学習順序: 7番目</small>
+                    </div>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎉 最終チェックポイント</div>
+                    <p>CR3レジスタとページング機構について、全体像から実装まで一貫して理解できましたか？この知識を基に、より高度なメモリ管理技術について学習を進めましょう！</p>
+                    <div style="margin-top: 15px; padding: 15px; background: rgba(78, 201, 176, 0.1); border-radius: 8px;">
+                        <strong>🎯 理解度確認クイズ</strong><br>
+                        1. CR3レジスタが保持するのは何のアドレスですか？<br>
+                        2. x86_64のページングは何レベル階層ですか？<br>
+                        3. WasabiOSでCR3を読み取る際にunsafeが必要な理由は？<br>
+                        4. hexdump出力の最初の8バイトが表すものは何ですか？
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- フッター -->
+        <footer class="page-footer">
+            <p>🍃 WasabiOS - CR3レジスタとページング機構 の技術解説</p>
+            <p>実装ファイル: <code>src/x86.rs, src/main.rs</code></p>
+            <a href="../../index.html" class="back-to-index">📚 インデックスに戻る</a>
+        </footer>
+    </div>
+
+    <script src="../../assets/script.js"></script>
+    <script>
+        // 学習進捗の追跡
+        let currentSection = 0;
+        const sections = ['overview', 'positioning', 'implementation', 'conclusion'];
+        
+        function updateLearningProgress() {
+            const progress = Math.round(((currentSection + 1) / sections.length) * 100);
+            document.getElementById('learningProgress').textContent = progress + '%';
+        }
+
+        // スクロール位置に基づく進捗更新
+        function handleScroll() {
+            const sectionElements = sections.map(id => document.getElementById(`section-${id}`));
+            const scrollPosition = window.scrollY + window.innerHeight / 2;
+            
+            for (let i = 0; i < sectionElements.length; i++) {
+                const section = sectionElements[i];
+                if (section && scrollPosition >= section.offsetTop && scrollPosition < section.offsetTop + section.offsetHeight) {
+                    if (currentSection !== i) {
+                        currentSection = i;
+                        updateLearningProgress();
+                        
+                        // セクション変更イベントを発火
+                        document.dispatchEvent(new CustomEvent('sectionChanged', {
+                            detail: { section: sections[i], index: i }
+                        }));
+                    }
+                    break;
+                }
+            }
+        }
+
+        // スクロールイベントリスナー
+        window.addEventListener('scroll', handleScroll);
+        
+        // 初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            updateLearningProgress();
+            handleScroll();
+            
+            // 技術ノードのクリックイベント
+            document.querySelectorAll('.tech-node').forEach(node => {
+                node.addEventListener('click', function() {
+                    // 将来的に関連ページへのナビゲーション機能を追加
+                    console.log('技術ノードクリック:', this.textContent);
+                });
+            });
+            
+            // ページテーブル階層のインタラクティブ機能
+            document.querySelectorAll('.page-level').forEach(level => {
+                level.addEventListener('click', function() {
+                    // 詳細説明の表示/非表示
+                    console.log('ページレベルクリック:', this.textContent);
+                });
+            });
+        });
+
+        // セクション変更時の処理
+        document.addEventListener('sectionChanged', function(e) {
+            const section = e.detail.section;
+            
+            // セクション固有のアニメーション
+            if (section === 'implementation') {
+                // 実装セクションでのコードハイライト
+                document.querySelectorAll('.highlight-entry').forEach(entry => {
+                    entry.style.animation = 'pulse 2s infinite';
+                });
+            }
+        });
+
+        // CSSアニメーション定義
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes pulse {
+                0% { background: rgba(249, 199, 79, 0.3); }
+                50% { background: rgba(249, 199, 79, 0.6); }
+                100% { background: rgba(249, 199, 79, 0.3); }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+</html>
