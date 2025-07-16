@@ -1,0 +1,1551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Huge page（巨大ページ）とx86_64ページング最適化 - WasabiOS 技術解説</title>
+    <link rel="stylesheet" href="../../assets/style.css">
+    <style>
+        /* 統一学習体験用のスタイル */
+        .learning-section {
+            margin: 40px 0;
+            padding: 30px;
+            border-radius: 12px;
+            border-left: 5px solid;
+            transition: all 0.3s ease;
+        }
+
+        .learning-section.overview {
+            background: linear-gradient(135deg, #1e3a32 0%, #2d4f42 100%);
+            border-left-color: #4ec9b0;
+        }
+
+        .learning-section.positioning {
+            background: linear-gradient(135deg, #264f78 0%, #3a6ba5 100%);
+            border-left-color: #007acc;
+        }
+
+        .learning-section.implementation {
+            background: linear-gradient(135deg, #3a2e1e 0%, #4f3e2a 100%);
+            border-left-color: #f9c74f;
+        }
+
+        .learning-section.conclusion {
+            background: linear-gradient(135deg, #3a1e3a 0%, #4f2a4f 100%);
+            border-left-color: #c586c0;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .section-icon {
+            font-size: 2.5rem;
+            margin-right: 15px;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .section-subtitle {
+            font-size: 1rem;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        .tech-map {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .tech-node {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .tech-node:hover {
+            transform: translateY(-3px);
+            border-color: #4ec9b0;
+            box-shadow: 0 5px 20px rgba(78, 201, 176, 0.3);
+        }
+
+        .tech-node.current {
+            border-color: #f9c74f;
+            background: rgba(249, 199, 79, 0.2);
+        }
+
+        .architecture-diagram {
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .comparison-table th {
+            background: rgba(255, 255, 255, 0.1);
+            font-weight: 600;
+        }
+
+        .comparison-table tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .code-implementation {
+            background: #0d1117;
+            border: 2px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+
+        .code-explanation {
+            background: rgba(255, 255, 255, 0.05);
+            border-left: 4px solid #007acc;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .learning-checkpoint {
+            background: rgba(78, 201, 176, 0.1);
+            border: 2px solid #4ec9b0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+        }
+
+        .checkpoint-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #4ec9b0;
+            margin-bottom: 10px;
+        }
+
+        .next-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .next-step-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .next-step-card:hover {
+            border-color: #007acc;
+            transform: translateY(-2px);
+        }
+
+        .step-card-title {
+            font-weight: 600;
+            color: #569cd6;
+            margin-bottom: 8px;
+        }
+
+        .progress-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(45, 45, 48, 0.9);
+            border: 2px solid #007acc;
+            border-radius: 8px;
+            padding: 10px 15px;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+
+        .progress-text {
+            font-size: 0.9rem;
+            color: #d4d4d4;
+        }
+
+        /* Huge page専用スタイル */
+        .page-size-comparison {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .page-size-card {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .page-size-card.standard {
+            border-color: #569cd6;
+        }
+
+        .page-size-card.huge-2mb {
+            border-color: #f9c74f;
+        }
+
+        .page-size-card.huge-1gb {
+            border-color: #4ec9b0;
+        }
+
+        .page-size-visual {
+            width: 100%;
+            height: 60px;
+            background: linear-gradient(45deg, currentColor, transparent);
+            border-radius: 4px;
+            margin: 10px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .page-size-visual.standard {
+            height: 20px;
+            color: #569cd6;
+        }
+
+        .page-size-visual.huge-2mb {
+            height: 40px;
+            color: #f9c74f;
+        }
+
+        .page-size-visual.huge-1gb {
+            height: 60px;
+            color: #4ec9b0;
+        }
+
+        .address-breakdown {
+            background: #1a1a1a;
+            border: 2px solid #4ec9b0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: monospace;
+        }
+
+        .bit-field {
+            display: flex;
+            border: 1px solid #666;
+            margin: 10px 0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .bit-box {
+            padding: 8px;
+            text-align: center;
+            border-right: 1px solid #666;
+            min-width: 60px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .bit-box:last-child {
+            border-right: none;
+        }
+
+        .bit-box.unused {
+            background: #333;
+            color: #888;
+        }
+
+        .bit-box.pml4 {
+            background: #4ec9b0;
+            color: #000;
+            font-weight: bold;
+        }
+
+        .bit-box.pdpt {
+            background: #007acc;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .bit-box.pd {
+            background: #f9c74f;
+            color: #000;
+            font-weight: bold;
+        }
+
+        .bit-box.pt {
+            background: #c586c0;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .bit-box.offset {
+            background: #608b4e;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .bit-box.extended-offset {
+            background: linear-gradient(45deg, #608b4e, #f9c74f);
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .hierarchy-comparison {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .hierarchy-card {
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .hierarchy-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .hierarchy-levels {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .hierarchy-level {
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        .hierarchy-level.skipped {
+            background: rgba(244, 71, 71, 0.2);
+            color: #f44747;
+            text-decoration: line-through;
+        }
+
+        .hierarchy-level.active {
+            background: rgba(78, 201, 176, 0.2);
+            color: #4ec9b0;
+            font-weight: bold;
+        }
+
+        .performance-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .metric-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #4ec9b0;
+            margin-bottom: 5px;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: #b3b3b3;
+        }
+
+        .metric-improvement {
+            font-size: 0.8rem;
+            color: #4ec9b0;
+            margin-top: 5px;
+        }
+
+        @media (max-width: 768px) {
+            .learning-section {
+                margin: 20px 0;
+                padding: 20px;
+            }
+            
+            .section-icon {
+                width: 50px;
+                height: 50px;
+                font-size: 2rem;
+            }
+            
+            .section-title {
+                font-size: 1.5rem;
+            }
+            
+            .progress-indicator {
+                position: relative;
+                top: auto;
+                right: auto;
+                margin-bottom: 20px;
+            }
+
+            .page-size-comparison {
+                grid-template-columns: 1fr;
+            }
+
+            .hierarchy-comparison {
+                grid-template-columns: 1fr;
+            }
+
+            .bit-field {
+                flex-wrap: wrap;
+            }
+
+            .bit-box {
+                min-width: 50px;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- ヘッダー -->
+        <header class="page-header">
+            <h1 class="page-title">🚀 Huge page（巨大ページ）とx86_64ページング最適化</h1>
+            <p class="page-subtitle">メモリ管理の効率化を実現する大容量ページング技術</p>
+        </header>
+
+        <!-- パンくずリスト -->
+        <nav class="breadcrumb">
+            <a href="../../index.html">🏠 ホーム</a>
+            <span>></span>
+            <a href="../../index.html#memory-management">メモリ管理</a>
+            <span>></span>
+            <span>Huge page（巨大ページ）</span>
+        </nav>
+
+        <!-- 学習進捗インジケーター -->
+        <div class="progress-indicator">
+            <div class="progress-text">学習進捗: <span id="learningProgress">0%</span></div>
+        </div>
+
+        <!-- メインコンテンツ -->
+        <main>
+            <!-- セクション1: 技術全体像 -->
+            <section class="learning-section overview" id="section-overview">
+                <div class="section-header">
+                    <div class="section-icon">🌍</div>
+                    <div>
+                        <h2 class="section-title">技術全体像</h2>
+                        <p class="section-subtitle">x86_64メモリ管理技術領域におけるHuge pageの位置づけ</p>
+                    </div>
+                </div>
+
+                <div class="tech-map">
+                    <div class="tech-node">
+                        <h4>🏗️ セグメンテーション</h4>
+                        <p>16bit時代の技術</p>
+                        <small>歴史的技術</small>
+                    </div>
+                    <div class="tech-node">
+                        <h4>📄 4KiBページング</h4>
+                        <p>標準的なページング</p>
+                        <small>基盤技術</small>
+                    </div>
+                    <div class="tech-node current">
+                        <h4>🚀 Huge page</h4>
+                        <p>大容量ページング</p>
+                        <small>現在学習中</small>
+                    </div>
+                    <div class="tech-node">
+                        <h4>⚡ TLB最適化</h4>
+                        <p>アドレス変換高速化</p>
+                        <small>応用技術</small>
+                    </div>
+                    <div class="tech-node">
+                        <h4>🔄 NUMA最適化</h4>
+                        <p>マルチプロセッサ対応</p>
+                        <small>高度な技術</small>
+                    </div>
+                    <div class="tech-node">
+                        <h4>🛡️ メモリ保護</h4>
+                        <p>セキュリティ強化</p>
+                        <small>応用技術</small>
+                    </div>
+                </div>
+
+                <div class="architecture-diagram">
+                    <h3>🏛️ x86_64メモリ管理技術の発展</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; margin: 20px 0;">
+                        <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 8px; min-width: 120px;">
+                            <strong>1980年代</strong><br>
+                            <small>セグメンテーション</small><br>
+                            <div style="font-size: 0.8rem; color: #888;">16MB制限</div>
+                        </div>
+                        <div style="font-size: 1.5rem; color: #4ec9b0;">→</div>
+                        <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 8px; min-width: 120px;">
+                            <strong>1990年代</strong><br>
+                            <small>4KiBページング</small><br>
+                            <div style="font-size: 0.8rem; color: #888;">4GB対応</div>
+                        </div>
+                        <div style="font-size: 1.5rem; color: #4ec9b0;">→</div>
+                        <div style="text-align: center; padding: 15px; background: rgba(249, 199, 79, 0.3); border: 2px solid #f9c74f; border-radius: 8px; min-width: 120px;">
+                            <strong>2000年代</strong><br>
+                            <small>Huge page</small><br>
+                            <div style="font-size: 0.8rem; color: #f9c74f;">大容量対応</div>
+                        </div>
+                        <div style="font-size: 1.5rem; color: #4ec9b0;">→</div>
+                        <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 8px; min-width: 120px;">
+                            <strong>現在</strong><br>
+                            <small>統合最適化</small><br>
+                            <div style="font-size: 0.8rem; color: #888;">TB級メモリ</div>
+                        </div>
+                    </div>
+                    <p>Huge pageは、大容量メモリ時代に対応するための重要な最適化技術です</p>
+                </div>
+
+                <div class="page-size-comparison">
+                    <div class="page-size-card standard">
+                        <h4 style="color: #569cd6;">📄 標準ページ</h4>
+                        <div class="page-size-visual standard"></div>
+                        <p><strong>4KiB</strong></p>
+                        <small>基本的なページサイズ</small>
+                    </div>
+                    <div class="page-size-card huge-2mb">
+                        <h4 style="color: #f9c74f;">📊 2MiBページ</h4>
+                        <div class="page-size-visual huge-2mb"></div>
+                        <p><strong>2MiB</strong></p>
+                        <small>512倍の大容量</small>
+                    </div>
+                    <div class="page-size-card huge-1gb">
+                        <h4 style="color: #4ec9b0;">📈 1GiBページ</h4>
+                        <div class="page-size-visual huge-1gb"></div>
+                        <p><strong>1GiB</strong></p>
+                        <small>262,144倍の超大容量</small>
+                    </div>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎯 理解チェックポイント</div>
+                    <p>Huge pageがx86_64メモリ管理技術の発展の中でどのような位置にあり、なぜ大容量メモリ時代に重要なのかを理解できましたか？</p>
+                </div>
+            </section>
+
+            <!-- セクション2: 位置づけと必要性 -->
+            <section class="learning-section positioning" id="section-positioning">
+                <div class="section-header">
+                    <div class="section-icon">🎯</div>
+                    <div>
+                        <h2 class="section-title">位置づけと必要性</h2>
+                        <p class="section-subtitle">なぜHuge pageが現代のシステムに不可欠なのか</p>
+                    </div>
+                </div>
+
+                <div class="architecture-diagram">
+                    <h3>🏗️ WasabiOSにおけるHuge pageの位置</h3>
+                    <div style="text-align: left; padding: 20px;">
+                        <div style="margin: 10px 0; padding: 15px; background: rgba(78, 201, 176, 0.2); border-radius: 5px;">
+                            <strong>🔧 ハードウェア層</strong><br>
+                            CPUのPSE（Page Size Extension）機能 → 2MiB/1GiBページのサポート
+                        </div>
+                        <div style="margin: 10px 0; padding: 15px; background: rgba(249, 199, 79, 0.2); border-radius: 5px;">
+                            <strong>🧠 カーネル層</strong><br>
+                            WasabiOSメモリ管理 → Huge page対応ページテーブル構築
+                        </div>
+                        <div style="margin: 10px 0; padding: 15px; background: rgba(197, 134, 192, 0.2); border-radius: 5px;">
+                            <strong>🚀 アプリケーション層</strong><br>
+                            大容量データ処理 → 効率的なメモリアクセス実現
+                        </div>
+                    </div>
+                </div>
+
+                <table class="comparison-table">
+                    <h3>⚖️ ページサイズ別比較</h3>
+                    <thead>
+                        <tr>
+                            <th>ページサイズ</th>
+                            <th>メリット</th>
+                            <th>デメリット</th>
+                            <th>適用場面</th>
+                            <th>TLBエントリ効率</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>4KiB（標準）</strong></td>
+                            <td>細かい制御、メモリ効率</td>
+                            <td>TLBミス多発、管理コスト高</td>
+                            <td>一般的なアプリケーション</td>
+                            <td>1エントリ = 4KiB</td>
+                        </tr>
+                        <tr style="background: rgba(249, 199, 79, 0.1);">
+                            <td><strong>2MiB（Huge）</strong></td>
+                            <td>TLB効率向上、管理簡素化</td>
+                            <td>内部フラグメンテーション</td>
+                            <td>データベース、科学計算</td>
+                            <td>1エントリ = 2MiB</td>
+                        </tr>
+                        <tr style="background: rgba(78, 201, 176, 0.1);">
+                            <td><strong>1GiB（Huge）</strong></td>
+                            <td>最高のTLB効率</td>
+                            <td>大きな内部フラグメンテーション</td>
+                            <td>仮想化、大規模データ処理</td>
+                            <td>1エントリ = 1GiB</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="code-explanation">
+                    <h3>🧠 TLB（Translation Lookaside Buffer）とは何か</h3>
+                    <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #007acc; margin-bottom: 15px;">💡 TLBの基本概念</h4>
+                        <p><strong>TLB（Translation Lookaside Buffer）</strong>は、仮想アドレスから物理アドレスへの変換結果を一時的に保存する<strong>高速キャッシュメモリ</strong>です。</p>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">TLBの役割:</div>
+                            <div style="color: #d4d4d4; font-size: 0.9rem; line-height: 1.8;">
+                                1. 仮想アドレス → 物理アドレス変換の高速化<br>
+                                2. ページテーブル参照回数の削減<br>
+                                3. メモリアクセス時間の短縮<br>
+                                4. CPU全体のパフォーマンス向上
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #007acc; margin-bottom: 10px;">🏗️ TLBの物理的構造</h5>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li><strong>連想メモリ（CAM）</strong>: 仮想アドレスをキーとして高速検索</li>
+                                <li><strong>エントリ数制限</strong>: 通常64～1024エントリ（ハードウェア制約）</li>
+                                <li><strong>アクセス時間</strong>: 1サイクル（L1キャッシュと同等の速度）</li>
+                                <li><strong>物理的配置</strong>: CPUコア内の専用回路</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">⚙️ TLBの動作原理</h4>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">メモリアクセス時の処理順序:</div>
+                            <div style="color: #d4d4d4; font-size: 0.85rem; line-height: 1.8;">
+                                <div style="color: #4ec9b0;">1. TLB検索</div>
+                                <div style="margin-left: 20px; color: #888;">仮想アドレスがTLBにあるか確認（1サイクル）</div><br>
+                                
+                                <div style="color: #4ec9b0;">2a. TLBヒット（理想的）</div>
+                                <div style="margin-left: 20px; color: #888;">物理アドレスを即座に取得 → メモリアクセス</div><br>
+                                
+                                <div style="color: #f44747;">2b. TLBミス（問題）</div>
+                                <div style="margin-left: 20px; color: #888;">ページテーブルウォーク実行（100-300サイクル）</div>
+                                <div style="margin-left: 20px; color: #888;">→ 物理アドレス取得 → TLBに登録 → メモリアクセス</div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0; padding: 15px; background: rgba(244, 71, 71, 0.1); border-radius: 5px;">
+                            <strong>⚠️ ページテーブルウォークとは</strong><br>
+                            TLBミス時に実行される、ページテーブル階層を順次辿って物理アドレスを求める処理。<br>
+                            x86_64では最大4回のメモリアクセスが必要（PML4→PDPT→PD→PT）
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #4ec9b0; margin-bottom: 15px;">📊 TLBエントリの構造</h4>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">1つのTLBエントリの内容:</div>
+                            <div style="font-size: 0.85rem; line-height: 1.8;">
+                                <span style="color: #4ec9b0;">仮想ページ番号</span> <span style="color: #888;">|</span> <span style="color: #f9c74f;">物理ページ番号</span> <span style="color: #888;">|</span> <span style="color: #c586c0;">アクセス権限</span> <span style="color: #888;">|</span> <span style="color: #608b4e;">有効フラグ</span><br>
+                                <span style="color: #888;">例: 0x12345 → 0xABCDE (R/W, Valid)</span>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #4ec9b0; margin-bottom: 10px;">🎯 重要なポイント</h5>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li><strong>ページ単位での管理</strong>: 1エントリ = 1ページの変換情報</li>
+                                <li><strong>カバレッジ</strong>: 4KiBページなら1エントリで4KiB、2MiBページなら1エントリで2MiB</li>
+                                <li><strong>置換アルゴリズム</strong>: LRU（Least Recently Used）が一般的</li>
+                                <li><strong>フラッシュ</strong>: プロセス切り替え時やページテーブル変更時に無効化</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔥 標準ページングの深刻な問題</h3>
+                    <div style="background: rgba(244, 71, 71, 0.1); border: 2px solid #f44747; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f44747; margin-bottom: 15px;">⚠️ TLBミス問題の実例</h4>
+                        <p><strong>問題シナリオ</strong>: 1GBのデータを処理するアプリケーション</p>
+                        
+                        <div style="margin: 15px 0; padding: 15px; background: rgba(0, 122, 204, 0.1); border-radius: 5px;">
+                            <strong>🧮 TLBミス率の計算</strong><br>
+                            TLBミス率 = (アクセスするページ数 - TLBエントリ数) ÷ アクセスするページ数<br>
+                            <small>※ 実際はアクセスパターンにより変動しますが、最悪ケースでの計算</small>
+                        </div>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">4KiBページングの場合:</div>
+                            <div style="color: #d4d4d4; font-size: 0.9rem; line-height: 1.6;">
+                                必要ページ数: 1GB ÷ 4KiB = <span style="color: #f44747;">262,144ページ</span><br>
+                                TLBエントリ数: 通常64～1024エントリ<br>
+                                TLBミス率: <span style="color: #f44747;">99.6%以上</span>（ほぼ全てミス）<br>
+                                メモリアクセス時間: <span style="color: #f44747;">100～300サイクル/アクセス</span>
+                            </div>
+                        </div>
+
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">2MiBページングの場合:</div>
+                            <div style="color: #d4d4d4; font-size: 0.9rem; line-height: 1.6;">
+                                必要ページ数: 1GB ÷ 2MiB = <span style="color: #4ec9b0;">512ページ</span><br>
+                                TLBエントリ数: 通常64～1024エントリ<br>
+                                TLBミス率: <span style="color: #4ec9b0;">50%以下</span>（大幅改善）<br>
+                                メモリアクセス時間: <span style="color: #4ec9b0;">1～10サイクル/アクセス</span>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0; padding: 15px; background: rgba(78, 201, 176, 0.1); border-radius: 5px;">
+                            <strong>🚀 パフォーマンス改善効果</strong><br>
+                            • メモリアクセス速度: <strong>10～30倍高速化</strong><br>
+                            • CPU使用率削減: <strong>20～50%削減</strong><br>
+                            • アプリケーション応答時間: <strong>2～5倍改善</strong>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">📊 ページテーブル肥大化問題</h4>
+                        <p><strong>メモリ管理オーバーヘッドの実例</strong></p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 15px 0;">
+                            <div>
+                                <h5 style="color: #f44747;">❌ 4KiBページングの場合</h5>
+                                <div style="background: #0d1117; padding: 10px; border-radius: 3px; font-family: monospace; font-size: 0.85rem;">
+                                    <div style="color: #d4d4d4;">16GBメモリの管理:</div>
+                                    <div style="color: #f44747;">ページ数: 4,194,304個</div>
+                                    <div style="color: #f44747;">ページテーブルサイズ: 32MB</div>
+                                    <div style="color: #f44747;">管理オーバーヘッド: 0.2%</div>
+                                </div>
+                            </div>
+                            <div>
+                                <h5 style="color: #4ec9b0;">✅ 2MiBページングの場合</h5>
+                                <div style="background: #0d1117; padding: 10px; border-radius: 3px; font-family: monospace; font-size: 0.85rem;">
+                                    <div style="color: #d4d4d4;">16GBメモリの管理:</div>
+                                    <div style="color: #4ec9b0;">ページ数: 8,192個</div>
+                                    <div style="color: #4ec9b0;">ページテーブルサイズ: 64KB</div>
+                                    <div style="color: #4ec9b0;">管理オーバーヘッド: 0.0004%</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0; padding: 15px; background: rgba(78, 201, 176, 0.1); border-radius: 5px;">
+                            <strong>📈 オーバーヘッド削減効果</strong><br>
+                            • ページテーブルサイズ: <strong>500倍削減</strong>（32MB → 64KB）<br>
+                            • メモリ管理効率: <strong>500倍向上</strong><br>
+                            • ページフォルト頻度: <strong>512倍削減</strong>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #007acc; margin-bottom: 15px;">🎯 実際の使用場面</h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin: 15px 0;">
+                            <div style="background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 5px;">
+                                <h5 style="color: #4ec9b0;">🗄️ データベースシステム</h5>
+                                <ul style="font-size: 0.9rem; margin: 10px 0; padding-left: 20px;">
+                                    <li>大容量バッファプール</li>
+                                    <li>インデックス処理の高速化</li>
+                                    <li>トランザクション処理の効率化</li>
+                                </ul>
+                            </div>
+                            <div style="background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 5px;">
+                                <h5 style="color: #f9c74f;">🔬 科学計算</h5>
+                                <ul style="font-size: 0.9rem; margin: 10px 0; padding-left: 20px;">
+                                    <li>大規模行列演算</li>
+                                    <li>シミュレーション処理</li>
+                                    <li>機械学習モデル訓練</li>
+                                </ul>
+                            </div>
+                            <div style="background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 5px;">
+                                <h5 style="color: #c586c0;">🖥️ 仮想化システム</h5>
+                                <ul style="font-size: 0.9rem; margin: 10px 0; padding-left: 20px;">
+                                    <li>ゲストOSメモリ管理</li>
+                                    <li>ハイパーバイザー最適化</li>
+                                    <li>コンテナ実行環境</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="performance-metrics">
+                    <div class="metric-card">
+                        <div class="metric-value">512×</div>
+                        <div class="metric-label">TLBカバレッジ向上</div>
+                        <div class="metric-improvement">2MiBページ使用時</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">262,144×</div>
+                        <div class="metric-label">TLBカバレッジ向上</div>
+                        <div class="metric-improvement">1GiBページ使用時</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">10-30×</div>
+                        <div class="metric-label">メモリアクセス高速化</div>
+                        <div class="metric-improvement">TLBミス削減効果</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">500×</div>
+                        <div class="metric-label">管理オーバーヘッド削減</div>
+                        <div class="metric-improvement">ページテーブルサイズ</div>
+                    </div>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎯 理解チェックポイント</div>
+                    <p>なぜHuge pageが現代の大容量メモリシステムに不可欠なのか、具体的な問題とその解決効果を理解できましたか？</p>
+                </div>
+            </section>
+
+            <!-- セクション3: 実現技術 -->
+            <section class="learning-section implementation" id="section-implementation">
+                <div class="section-header">
+                    <div class="section-icon">⚙️</div>
+                    <div>
+                        <h2 class="section-title">実現技術</h2>
+                        <p class="section-subtitle">Huge pageの具体的な仕組みと実装</p>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🤔 よくある疑問：「なぜ最初から大きなページにしなかったのか？」</h3>
+                    <div style="background: rgba(244, 71, 71, 0.1); border: 2px solid #f44747; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f44747; margin-bottom: 15px;">❓ 直感的な疑問</h4>
+                        <p><strong>「単純にテーブル数を減らしただけでは？最初から大きなページにすればよかったのでは？」</strong></p>
+                        <p>この疑問は非常に自然で、実際に多くの技術者が抱く疑問です。しかし、実際には以下の深刻な制約があります。</p>
+                    </div>
+
+                    <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #007acc; margin-bottom: 15px;">🏛️ 歴史的・技術的制約</h4>
+                        
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #007acc; margin-bottom: 10px;">1️⃣ メモリ容量の歴史的変遷</h5>
+                            <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: monospace;">
+                                <div style="color: #569cd6; margin-bottom: 10px;">時代別メモリ容量:</div>
+                                <div style="font-size: 0.85rem; line-height: 1.8;">
+                                    <div style="color: #888;">1990年代: 4MB～64MB（4KiBページが適切）</div>
+                                    <div style="color: #888;">2000年代: 128MB～2GB（4KiBページでも管理可能）</div>
+                                    <div style="color: #f9c74f;">2010年代: 4GB～64GB（Huge pageが必要に）</div>
+                                    <div style="color: #4ec9b0;">現在: 128GB～数TB（Huge pageが不可欠）</div>
+                                </div>
+                            </div>
+                            <p style="font-size: 0.9rem; margin: 10px 0;">
+                                <strong>重要</strong>: 1990年代に2MiBページを使うと、4MBのシステムでたった2ページしか作れません！
+                            </p>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #007acc; margin-bottom: 10px;">2️⃣ 内部フラグメンテーション問題</h5>
+                            <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: monospace;">
+                                <div style="color: #569cd6; margin-bottom: 10px;">小さなプログラムでの問題例:</div>
+                                <div style="font-size: 0.85rem; line-height: 1.8;">
+                                    <div style="color: #d4d4d4;">プログラムサイズ: 100KB</div>
+                                    <div style="color: #f44747;">4KiBページ: 25ページ使用（100KB）← 効率的</div>
+                                    <div style="color: #f44747;">2MiBページ: 1ページ使用（2MB）← 1.9MB無駄！</div>
+                                    <div style="color: #888;">無駄率: 95%</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #007acc; margin-bottom: 10px;">3️⃣ アプリケーションの多様性</h5>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li><strong>小さなプログラム</strong>: テキストエディタ、計算機（数KB～数MB）</li>
+                                <li><strong>中程度のプログラム</strong>: ブラウザ、オフィスソフト（数十MB～数百MB）</li>
+                                <li><strong>大きなプログラム</strong>: データベース、科学計算（数GB～数十GB）</li>
+                            </ul>
+                            <p style="font-size: 0.9rem; margin: 10px 0;">
+                                すべてのアプリケーションに同じページサイズを強制するのは非効率的です。
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">🎯 なぜ「部分的」なのか</h4>
+                        
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #f9c74f; margin-bottom: 10px;">🔄 混在使用の必要性</h5>
+                            <p>現実のシステムでは、<strong>同時に異なるサイズのページが必要</strong>です：</p>
+                            <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: monospace;">
+                                <div style="color: #569cd6; margin-bottom: 10px;">典型的なシステム構成:</div>
+                                <div style="font-size: 0.85rem; line-height: 1.8;">
+                                    <div style="color: #4ec9b0;">カーネルコード: 4KiBページ（細かい制御が必要）</div>
+                                    <div style="color: #f9c74f;">データベースバッファ: 2MiBページ（大容量・高速）</div>
+                                    <div style="color: #c586c0;">小さなアプリ: 4KiBページ（メモリ効率重視）</div>
+                                    <div style="color: #007acc;">機械学習モデル: 1GiBページ（超大容量）</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #f9c74f; margin-bottom: 10px;">⚙️ PSEフラグの真の意味</h5>
+                            <p><strong>PSEフラグは「選択的スキップ」を実現</strong>します：</p>
+                            <ul style="margin: 10px 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li><strong>PSE=0</strong>: 通常の4KiBページング（細かい制御）</li>
+                                <li><strong>PSE=1</strong>: Huge pageモード（高速・大容量）</li>
+                                <li><strong>同一システム内で混在可能</strong>: 用途に応じて最適化</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #4ec9b0; margin-bottom: 15px;">🏗️ 「全部中間テーブルを無くす」ことができない理由</h4>
+                        
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #4ec9b0; margin-bottom: 10px;">1️⃣ アドレス空間の管理限界</h5>
+                            <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: monospace;">
+                                <div style="color: #569cd6; margin-bottom: 10px;">仮想アドレス空間: 256TB（48bit）</div>
+                                <div style="font-size: 0.85rem; line-height: 1.8;">
+                                    <div style="color: #f44747;">1GiBページのみの場合:</div>
+                                    <div style="color: #f44747;">必要エントリ数: 256TB ÷ 1GiB = 262,144エントリ</div>
+                                    <div style="color: #f44747;">テーブルサイズ: 262,144 × 8B = 2MB</div>
+                                    <div style="color: #888;">→ 一見問題なさそうですが...</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #4ec9b0; margin-bottom: 10px;">2️⃣ スパースメモリ問題</h5>
+                            <p><strong>実際のメモリ使用はスパース（疎）</strong>です：</p>
+                            <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: monospace;">
+                                <div style="color: #569cd6; margin-bottom: 10px;">典型的なプロセスのメモリレイアウト:</div>
+                                <div style="font-size: 0.85rem; line-height: 1.8;">
+                                    <div style="color: #4ec9b0;">0x00000000: プログラムコード（数MB）</div>
+                                    <div style="color: #888;">0x10000000～0x7F000000: 未使用（巨大な空白）</div>
+                                    <div style="color: #f9c74f;">0x7F000000: スタック（数MB）</div>
+                                    <div style="color: #888;">0x80000000～0xFF000000: 未使用（巨大な空白）</div>
+                                    <div style="color: #c586c0;">0xFF000000: ヒープ（可変）</div>
+                                </div>
+                            </div>
+                            <p style="font-size: 0.9rem; margin: 10px 0;">
+                                1GiBページだと、この空白部分にも巨大なページを割り当てることになり、
+                                <strong>メモリの大量無駄遣い</strong>が発生します。
+                            </p>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #4ec9b0; margin-bottom: 10px;">3️⃣ 階層構造の利点</h5>
+                            <p><strong>階層構造により「必要な部分だけテーブル作成」</strong>が可能：</p>
+                            <ul style="margin: 10px 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li><strong>使用中の領域</strong>: 詳細なページテーブルを作成</li>
+                                <li><strong>未使用の領域</strong>: ページテーブル自体を作成しない</li>
+                                <li><strong>動的拡張</strong>: 必要に応じてテーブルを追加</li>
+                                <li><strong>メモリ効率</strong>: 実際に使用する分だけメモリ消費</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔧 基本動作原理：ページテーブル階層のスキップ</h3>
+                    <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #4ec9b0; margin-bottom: 15px;">💡 核心的なアイデア</h4>
+                        <p><strong>Huge pageの本質</strong>は、「中間のページテーブル階層をスキップして、そのインデックス用ビットをページ内オフセットに転用する」ことです。</p>
+                        
+                        <div style="margin: 15px 0; padding: 15px; background: rgba(249, 199, 79, 0.1); border-radius: 5px;">
+                            <strong>🎯 重要な理解</strong><br>
+                            これは「設計の失敗を後から修正」ではなく、<strong>「異なる用途に最適化された複数の手法を同一システム内で使い分ける」</strong>高度な技術です。
+                        </div>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">通常の4KiBページング（4階層）:</div>
+                            <div style="color: #d4d4d4; font-size: 0.9rem; line-height: 1.8;">
+                                PML4 → PDPT → PD → PT → 物理ページ（4KiB）<br>
+                                <span style="color: #888;">全ての階層を経由してアドレス変換</span>
+                            </div>
+                        </div>
+
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">2MiBページング（3階層）:</div>
+                            <div style="color: #d4d4d4; font-size: 0.9rem; line-height: 1.8;">
+                                PML4 → PDPT → PD → 物理ページ（2MiB）<br>
+                                <span style="color: #f9c74f;">PTレベルをスキップ</span>
+                            </div>
+                        </div>
+
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">1GiBページング（2階層）:</div>
+                            <div style="color: #d4d4d4; font-size: 0.9rem; line-height: 1.8;">
+                                PML4 → PDPT → 物理ページ（1GiB）<br>
+                                <span style="color: #4ec9b0;">PD・PTレベルをスキップ</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hierarchy-comparison">
+                    <div class="hierarchy-card">
+                        <div class="hierarchy-title" style="color: #569cd6;">📄 4KiBページング</div>
+                        <div class="hierarchy-levels">
+                            <div class="hierarchy-level active">PML4 (9bit)</div>
+                            <div class="hierarchy-level active">PDPT (9bit)</div>
+                            <div class="hierarchy-level active">PD (9bit)</div>
+                            <div class="hierarchy-level active">PT (9bit)</div>
+                            <div class="hierarchy-level" style="background: rgba(96, 139, 78, 0.2); color: #608b4e;">オフセット (12bit)</div>
+                        </div>
+                        <div style="text-align: center; margin-top: 10px; font-size: 0.9rem; color: #888;">
+                            4階層すべて使用
+                        </div>
+                    </div>
+
+                    <div class="hierarchy-card">
+                        <div class="hierarchy-title" style="color: #f9c74f;">📊 2MiBページング</div>
+                        <div class="hierarchy-levels">
+                            <div class="hierarchy-level active">PML4 (9bit)</div>
+                            <div class="hierarchy-level active">PDPT (9bit)</div>
+                            <div class="hierarchy-level active">PD (9bit)</div>
+                            <div class="hierarchy-level skipped">PT (9bit)</div>
+                            <div class="hierarchy-level" style="background: linear-gradient(45deg, rgba(96, 139, 78, 0.2), rgba(249, 199, 79, 0.2)); color: #f9c74f;">拡張オフセット (21bit)</div>
+                        </div>
+                        <div style="text-align: center; margin-top: 10px; font-size: 0.9rem; color: #f9c74f;">
+                            PTをスキップ、オフセット拡張
+                        </div>
+                    </div>
+
+                    <div class="hierarchy-card">
+                        <div class="hierarchy-title" style="color: #4ec9b0;">📈 1GiBページング</div>
+                        <div class="hierarchy-levels">
+                            <div class="hierarchy-level active">PML4 (9bit)</div>
+                            <div class="hierarchy-level active">PDPT (9bit)</div>
+                            <div class="hierarchy-level skipped">PD (9bit)</div>
+                            <div class="hierarchy-level skipped">PT (9bit)</div>
+                            <div class="hierarchy-level" style="background: linear-gradient(45deg, rgba(96, 139, 78, 0.2), rgba(78, 201, 176, 0.2)); color: #4ec9b0;">拡張オフセット (30bit)</div>
+                        </div>
+                        <div style="text-align: center; margin-top: 10px; font-size: 0.9rem; color: #4ec9b0;">
+                            PD・PTをスキップ、オフセット大幅拡張
+                        </div>
+                    </div>
+                </div>
+
+                <div class="address-breakdown">
+                    <h3>🧮 仮想アドレスのビット配置変化</h3>
+                    
+                    <h4 style="color: #569cd6; margin: 20px 0 10px 0;">📄 4KiBページング（標準）</h4>
+                    <div class="bit-field">
+                        <div class="bit-box unused">63-48<br>未使用</div>
+                        <div class="bit-box pml4">47-39<br>PML4</div>
+                        <div class="bit-box pdpt">38-30<br>PDPT</div>
+                        <div class="bit-box pd">29-21<br>PD</div>
+                        <div class="bit-box pt">20-12<br>PT</div>
+                        <div class="bit-box offset">11-0<br>オフセット</div>
+                    </div>
+                    <div style="margin: 10px 0; font-size: 0.9rem; color: #888;">
+                        管理範囲: 1ページ = 4KiB（2^12バイト）
+                    </div>
+
+                    <h4 style="color: #f9c74f; margin: 20px 0 10px 0;">📊 2MiBページング</h4>
+                    <div class="bit-field">
+                        <div class="bit-box unused">63-48<br>未使用</div>
+                        <div class="bit-box pml4">47-39<br>PML4</div>
+                        <div class="bit-box pdpt">38-30<br>PDPT</div>
+                        <div class="bit-box pd">29-21<br>PD</div>
+                        <div class="bit-box extended-offset">20-0<br>拡張オフセット</div>
+                    </div>
+                    <div style="margin: 10px 0; font-size: 0.9rem; color: #f9c74f;">
+                        管理範囲: 1ページ = 2MiB（2^21バイト）= PT(9bit) + オフセット(12bit)
+                    </div>
+
+                    <h4 style="color: #4ec9b0; margin: 20px 0 10px 0;">📈 1GiBページング</h4>
+                    <div class="bit-field">
+                        <div class="bit-box unused">63-48<br>未使用</div>
+                        <div class="bit-box pml4">47-39<br>PML4</div>
+                        <div class="bit-box pdpt">38-30<br>PDPT</div>
+                        <div class="bit-box extended-offset">29-0<br>拡張オフセット</div>
+                    </div>
+                    <div style="margin: 10px 0; font-size: 0.9rem; color: #4ec9b0;">
+                        管理範囲: 1ページ = 1GiB（2^30バイト）= PD(9bit) + PT(9bit) + オフセット(12bit)
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔍 PSE（Page Size Extension）フラグの役割</h3>
+                    <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">🏷️ PSEフラグとは</h4>
+                        <p><strong>PSE（Page Size Extension）フラグ</strong>は、ページディレクトリエントリの7bit目に設定されるフラグで、「このエントリは次の階層を指すのではなく、直接大きなページを指す」ことを示します。</p>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">ページディレクトリエントリの構造:</div>
+                            <div style="font-size: 0.85rem; line-height: 1.8;">
+                                <span style="color: #4ec9b0;">63-12:</span> <span style="color: #4ec9b0;">物理アドレス（52bit）</span><br>
+                                <span style="color: #888;">11-8:</span> <span style="color: #888;">利用可能</span><br>
+                                <span style="color: #f9c74f;">7:</span> <span style="color: #f9c74f;">PS (Page Size) = PSEフラグ</span><br>
+                                <span style="color: #888;">6-0:</span> <span style="color: #888;">その他のフラグ</span>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #f9c74f; margin-bottom: 10px;">🎯 PSEフラグの動作</h5>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li><strong>PSE = 0</strong>: 通常動作（次の階層のページテーブルを指す）</li>
+                                <li><strong>PSE = 1</strong>: Huge page動作（直接大きな物理ページを指す）</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-implementation">
+                    <h3>💻 WasabiOSでのHuge page実装例</h3>
+                    <pre><code><span style="color: #569cd6;">// src/memory.rs - Huge page対応ページテーブル実装</span>
+
+<span style="color: #c586c0;">use</span> <span style="color: #4ec9b0;">core</span>::<span style="color: #4ec9b0;">mem</span>;
+
+<span style="color: #569cd6;">// ページサイズの定義</span>
+<span style="color: #c586c0;">pub const</span> <span style="color: #4ec9b0;">PAGE_SIZE_4K</span>: <span style="color: #569cd6;">usize</span> = <span style="color: #b5cea8;">4096</span>;
+<span style="color: #c586c0;">pub const</span> <span style="color: #4ec9b0;">PAGE_SIZE_2M</span>: <span style="color: #569cd6;">usize</span> = <span style="color: #b5cea8;">2</span> * <span style="color: #b5cea8;">1024</span> * <span style="color: #b5cea8;">1024</span>;
+<span style="color: #c586c0;">pub const</span> <span style="color: #4ec9b0;">PAGE_SIZE_1G</span>: <span style="color: #569cd6;">usize</span> = <span style="color: #b5cea8;">1024</span> * <span style="color: #b5cea8;">1024</span> * <span style="color: #b5cea8;">1024</span>;
+
+<span style="color: #569cd6;">// ページテーブルエントリのフラグ</span>
+<span style="color: #c586c0;">pub const</span> <span style="color: #4ec9b0;">PAGE_PRESENT</span>: <span style="color: #569cd6;">u64</span> = <span style="color: #b5cea8;">1</span> << <span style="color: #b5cea8;">0</span>;
+<span style="color: #c586c0;">pub const</span> <span style="color: #4ec9b0;">PAGE_WRITABLE</span>: <span style="color: #569cd6;">u64</span> = <span style="color: #b5cea8;">1</span> << <span style="color: #b5cea8;">1</span>;
+<span style="color: #c586c0;">pub const</span> <span style="color: #4ec9b0;">PAGE_SIZE_EXTENSION</span>: <span style="color: #569cd6;">u64</span> = <span style="color: #b5cea8;">1</span> << <span style="color: #b5cea8;">7</span>; <span style="color: #569cd6;">// PSEフラグ</span>
+
+<span style="color: #569cd6;">// Huge pageエントリの作成</span>
+<span style="color: #c586c0;">pub fn</span> <span style="color: #dcdcaa;">create_huge_page_entry</span>(<span style="color: #9cdcfe;">physical_addr</span>: <span style="color: #569cd6;">u64</span>, <span style="color: #9cdcfe;">flags</span>: <span style="color: #569cd6;">u64</span>) -> <span style="color: #569cd6;">u64</span> {
+    <span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">addr_mask</span> = <span style="color: #b5cea8;">0xfffffffffffff000</span>; <span style="color: #569cd6;">// 物理アドレス部分</span>
+    <span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">aligned_addr</span> = <span style="color: #9cdcfe;">physical_addr</span> & <span style="color: #9cdcfe;">addr_mask</span>;
+    
+    <span style="color: #9cdcfe;">aligned_addr</span> | <span style="color: #9cdcfe;">flags</span> | <span style="color: #4ec9b0;">PAGE_SIZE_EXTENSION</span> | <span style="color: #4ec9b0;">PAGE_PRESENT</span>
+}
+
+<span style="color: #569cd6;">// 2MiBページのマッピング</span>
+<span style="color: #c586c0;">pub fn</span> <span style="color: #dcdcaa;">map_2mb_page</span>(<span style="color: #9cdcfe;">pd</span>: &<span style="color: #c586c0;">mut</span> [<span style="color: #569cd6;">u64</span>; <span style="color: #b5cea8;">512</span>], <span style="color: #9cdcfe;">index</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #9cdcfe;">physical_addr</span>: <span style="color: #569cd6;">u64</span>) {
+    <span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">entry</span> = <span style="color: #dcdcaa;">create_huge_page_entry</span>(<span style="color: #9cdcfe;">physical_addr</span>, <span style="color: #4ec9b0;">PAGE_WRITABLE</span>);
+    <span style="color: #9cdcfe;">pd</span>[<span style="color: #9cdcfe;">index</span>] = <span style="color: #9cdcfe;">entry</span>;
+}
+
+<span style="color: #569cd6;">// CPUのHuge pageサポート検出</span>
+<span style="color: #c586c0;">pub fn</span> <span style="color: #dcdcaa;">check_huge_page_support</span>() -> <span style="color: #569cd6;">bool</span> {
+    <span style="color: #c586c0;">let</span> <span style="color: #c586c0;">mut</span> <span style="color: #9cdcfe;">eax</span>: <span style="color: #569cd6;">u32</span>;
+    <span style="color: #c586c0;">let</span> <span style="color: #c586c0;">mut</span> <span style="color: #9cdcfe;">edx</span>: <span style="color: #569cd6;">u32</span>;
+    
+    <span style="color: #c586c0;">unsafe</span> {
+        <span style="color: #dcdcaa;">asm!</span>(
+            <span style="color: #ce9178;">"cpuid"</span>,
+            <span style="color: #9cdcfe;">inout</span>(<span style="color: #ce9178;">"eax"</span>) <span style="color: #b5cea8;">0x80000001u32</span> => <span style="color: #9cdcfe;">eax</span>,
+            <span style="color: #9cdcfe;">out</span>(<span style="color: #ce9178;">"ebx"</span>) <span style="color: #9cdcfe;">_</span>,
+            <span style="color: #9cdcfe;">out</span>(<span style="color: #ce9178;">"ecx"</span>) <span style="color: #9cdcfe;">_</span>,
+            <span style="color: #9cdcfe;">out</span>(<span style="color: #ce9178;">"edx"</span>) <span style="color: #9cdcfe;">edx</span>,
+        );
+    }
+    
+    <span style="color: #569cd6;">// EDXの26bit目がPSE（Page Size Extension）サポートを示す</span>
+    (<span style="color: #9cdcfe;">edx</span> & (<span style="color: #b5cea8;">1</span> << <span style="color: #b5cea8;">26</span>)) != <span style="color: #b5cea8;">0</span>
+}</code></pre>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔍 実装のポイント</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin: 20px 0;">
+                        <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #4ec9b0; margin-bottom: 10px;">🎯 アライメント要件</h4>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li><strong>2MiBページ</strong>: 2MiB境界にアライン</li>
+                                <li><strong>1GiBページ</strong>: 1GiB境界にアライン</li>
+                                <li>物理アドレスの下位ビットは0である必要</li>
+                            </ul>
+                        </div>
+                        
+                        <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #f9c74f; margin-bottom: 10px;">🏷️ PSEフラグ設定</h4>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li>ページディレクトリエントリの7bit目</li>
+                                <li>必ずPresentフラグと組み合わせ</li>
+                                <li>CPUのPSEサポート確認が必要</li>
+                            </ul>
+                        </div>
+                        
+                        <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #007acc; margin-bottom: 10px;">🔧 ハードウェア検出</h4>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li>CPUID命令でPSEサポート確認</li>
+                                <li>1GiBページは別途PDPE1GBフラグ確認</li>
+                                <li>実行時の動的判定が重要</li>
+                            </ul>
+                        </div>
+                        
+                        <div style="background: rgba(197, 134, 192, 0.1); border: 2px solid #c586c0; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #c586c0; margin-bottom: 10px;">⚠️ 注意点</h4>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li>内部フラグメンテーションの考慮</li>
+                                <li>TLBフラッシュの適切な実行</li>
+                                <li>メモリ保護フラグの継承</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🚀 実際の動作例</h3>
+                    <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #007acc; margin-bottom: 15px;">📊 2MiBページでのアドレス変換例</h4>
+                        <p><strong>仮想アドレス</strong>: <code>0x0000000040200800</code> を2MiBページで変換</p>
+                        
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">ビット分解:</div>
+                            <div style="font-size: 0.85rem; line-height: 1.8;">
+                                <div style="color: #888;">63-48: 0x0000 (未使用)</div>
+                                <div style="color: #4ec9b0;">47-39: 0x000 (PML4インデックス = 0)</div>
+                                <div style="color: #007acc;">38-30: 0x001 (PDPTインデックス = 1)</div>
+                                <div style="color: #f9c74f;">29-21: 0x001 (PDインデックス = 1)</div>
+                                <div style="color: #608b4e;">20-0: 0x200800 (拡張オフセット = 2,099,200)</div>
+                            </div>
+                        </div>
+
+                        <div style="background: #0d1117; padding: 15px; border-radius: 5px; margin: 15px 0; font-family: monospace;">
+                            <div style="color: #569cd6; margin-bottom: 10px;">変換手順:</div>
+                            <div style="font-size: 0.85rem; line-height: 1.8;">
+                                <div style="color: #4ec9b0;">1. PML4[0] → PDPTアドレス取得</div>
+                                <div style="color: #007acc;">2. PDPT[1] → PDアドレス取得</div>
+                                <div style="color: #f9c74f;">3. PD[1] → PSE=1なので2MiBページ</div>
+                                <div style="color: #608b4e;">4. 物理ページ + オフセット = 最終アドレス</div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 15px 0; padding: 15px; background: rgba(78, 201, 176, 0.1); border-radius: 5px;">
+                            <strong>🎯 重要なポイント</strong><br>
+                            • PDエントリのPSEフラグが1なので、PTレベルをスキップ<br>
+                            • 21bitの拡張オフセットで2MiB範囲内を直接指定<br>
+                            • 通常の4KiBページングより3段階少ないメモリアクセス
+                        </div>
+                    </div>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎯 理解チェックポイント</div>
+                    <p>Huge pageの基本原理、PSEフラグの役割、WasabiOSでの実装方法を理解できましたか？</p>
+                </div>
+            </section>
+
+            <!-- セクション4: 学習の完結 -->
+            <section class="learning-section conclusion" id="section-conclusion">
+                <div class="section-header">
+                    <div class="section-icon">🔗</div>
+                    <div>
+                        <h2 class="section-title">学習の完結</h2>
+                        <p class="section-subtitle">要点整理と次のステップ</p>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>📝 学習内容の要点</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin: 20px 0;">
+                        <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #4ec9b0; margin-bottom: 10px;">🚀 Huge pageの本質</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>ページテーブル階層のスキップ</li>
+                                <li>インデックスビットのオフセット転用</li>
+                                <li>2MiB/1GiBの大容量ページ実現</li>
+                            </ul>
+                        </div>
+                        <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #f9c74f; margin-bottom: 10px;">⚡ パフォーマンス効果</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>TLBミス率の大幅削減</li>
+                                <li>メモリアクセス10-30倍高速化</li>
+                                <li>ページテーブル管理コスト500倍削減</li>
+                            </ul>
+                        </div>
+                        <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #007acc; margin-bottom: 10px;">🔧 実装技術</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>PSEフラグによる階層制御</li>
+                                <li>CPUIDによるサポート検出</li>
+                                <li>アライメント要件の遵守</li>
+                            </ul>
+                        </div>
+                        <div style="background: rgba(197, 134, 192, 0.1); border: 2px solid #c586c0; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #c586c0; margin-bottom: 10px;">🎯 適用場面</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>データベースシステム</li>
+                                <li>科学計算・機械学習</li>
+                                <li>仮想化・コンテナ環境</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔍 技術的な深い理解</h3>
+                    <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #4ec9b0; margin-bottom: 15px;">💡 なぜHuge pageが効果的なのか</h4>
+                        <p>Huge pageの効果は、<strong>局所性の原理</strong>と<strong>TLBの物理的制約</strong>の組み合わせから生まれます：</p>
+                        
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #4ec9b0; margin-bottom: 10px;">🎯 局所性の原理</h5>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li><strong>時間的局所性</strong>: 最近アクセスしたメモリは再度アクセスされやすい</li>
+                                <li><strong>空間的局所性</strong>: 近隣のメモリアドレスは連続してアクセスされやすい</li>
+                                <li><strong>大容量ページの利点</strong>: より広い範囲を1つのTLBエントリでカバー</li>
+                            </ul>
+                        </div>
+
+                        <div style="margin: 15px 0;">
+                            <h5 style="color: #4ec9b0; margin-bottom: 10px;">🔧 TLBの物理的制約</h5>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem;">
+                                <li><strong>エントリ数制限</strong>: 通常64-1024エントリ（ハードウェア制約）</li>
+                                <li><strong>アクセス速度</strong>: 1サイクルでの高速アクセスが必要</li>
+                                <li><strong>面積制約</strong>: CPUダイ上の物理的なスペース制限</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4 style="color: #f9c74f; margin-bottom: 15px;">⚖️ トレードオフの理解</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 15px 0;">
+                            <div>
+                                <h5 style="color: #4ec9b0;">✅ メリット</h5>
+                                <ul style="font-size: 0.9rem; margin: 10px 0; padding-left: 20px;">
+                                    <li>TLB効率の劇的向上</li>
+                                    <li>ページテーブル管理コスト削減</li>
+                                    <li>メモリアクセス高速化</li>
+                                    <li>ページフォルト頻度削減</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h5 style="color: #f44747;">❌ デメリット</h5>
+                                <ul style="font-size: 0.9rem; margin: 10px 0; padding-left: 20px;">
+                                    <li>内部フラグメンテーション</li>
+                                    <li>メモリ使用量の増加可能性</li>
+                                    <li>実装の複雑性</li>
+                                    <li>適用場面の限定</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <p style="margin-top: 15px; font-size: 0.9rem; color: #888;">
+                            <strong>重要</strong>: Huge pageは「銀の弾丸」ではなく、適切な場面で使用することが重要です。
+                        </p>
+                    </div>
+                </div>
+
+                <div class="next-steps">
+                    <h3>🚀 次のステップ</h3>
+                    <div class="next-step-card">
+                        <div class="step-card-title">⚡ TLB管理と最適化</div>
+                        <p>Translation Lookaside Bufferの詳細な管理方法と、Huge pageと組み合わせた最適化技術を学習する</p>
+                        <small>推奨学習順序: 1番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🔥 ページフォルト処理</div>
+                        <p>Huge pageでのページフォルト処理と、オンデマンドページング、スワップ機能の実装を理解する</p>
+                        <small>推奨学習順序: 2番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">📦 メモリアロケータ最適化</div>
+                        <p>Huge pageを活用した高性能メモリアロケータの設計と実装を学習する</p>
+                        <small>推奨学習順序: 3番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🖥️ 仮想化とHuge page</div>
+                        <p>ハイパーバイザーでのHuge page活用と、ゲストOSでの効率的なメモリ管理を学習する</p>
+                        <small>推奨学習順序: 4番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🔄 NUMA最適化</div>
+                        <p>Non-Uniform Memory Access環境でのHuge page活用と、マルチプロセッサ最適化を学習する</p>
+                        <small>推奨学習順序: 5番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">📊 パフォーマンス測定</div>
+                        <p>Huge pageの効果を定量的に測定する方法と、プロファイリング技術を学習する</p>
+                        <small>推奨学習順序: 6番目</small>
+                    </div>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎉 最終チェックポイント</div>
+                    <p>Huge pageについて、技術全体像から実装まで一貫して理解できましたか？この知識を基に、より高度なメモリ管理最適化技術について学習を進めましょう！</p>
+                    <div style="margin-top: 15px; padding: 15px; background: rgba(78, 201, 176, 0.1); border-radius: 8px;">
+                        <strong>🎯 理解度確認クイズ</strong><br>
+                        1. 2MiBページングでスキップされる階層は何ですか？<br>
+                        2. PSEフラグはページテーブルエントリの何bit目ですか？<br>
+                        3. 1GiBのデータ処理で2MiBページを使った場合のTLBミス率改善効果は？<br>
+                        4. Huge pageの最大のデメリットは何ですか？
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- フッター -->
+        <footer class="page-footer">
+            <p>🍃 WasabiOS - Huge page（巨大ページ）とx86_64ページング最適化 の技術解説</p>
+            <p>実装ファイル: <code>src/memory.rs, src/x86.rs</code></p>
+            <a href="../../index.html" class="back-to-index">📚 インデックスに戻る</a>
+        </footer>
+    </div>
+
+    <script src="../../assets/script.js"></script>
+    <script>
+        // 学習進捗の追跡
+        let currentSection = 0;
+        const sections = ['overview', 'positioning', 'implementation', 'conclusion'];
+        
+        function updateLearningProgress() {
+            const progress = Math.round(((currentSection + 1) / sections.length) * 100);
+            document.getElementById('learningProgress').textContent = progress + '%';
+        }
+
+        // スクロール位置に基づく進捗更新
+        function handleScroll() {
+            const sectionElements = sections.map(id => document.getElementById(`section-${id}`));
+            const scrollPosition = window.scrollY + window.innerHeight / 2;
+            
+            for (let i = 0; i < sectionElements.length; i++) {
+                const section = sectionElements[i];
+                if (section && scrollPosition >= section.offsetTop && scrollPosition < section.offsetTop + section.offsetHeight) {
+                    if (currentSection !== i) {
+                        currentSection = i;
+                        updateLearningProgress();
+                        
+                        // セクション変更イベントを発火
+                        document.dispatchEvent(new CustomEvent('sectionChanged', {
+                            detail: { section: sections[i], index: i }
+                        }));
+                    }
+                    break;
+                }
+            }
+        }
+
+        // スクロールイベントリスナー
+        window.addEventListener('scroll', handleScroll);
+        
+        // 初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            updateLearningProgress();
+            handleScroll();
+            
+            // 技術ノードのクリックイベント
+            document.querySelectorAll('.tech-node').forEach(node => {
+                node.addEventListener('click', function() {
+                    // 将来的に関連ページへのナビゲーション機能を追加
+                    console.log('技術ノードクリック:', this.textContent);
+                });
+            });
+            
+            // ページサイズカードのインタラクティブ機能
+            document.querySelectorAll('.page-size-card').forEach(card => {
+                card.addEventListener('click', function() {
+                    // 詳細説明の表示/非表示
+                    console.log('ページサイズカードクリック:', this.textContent);
+                });
+            });
+
+            // 階層比較カードのインタラクティブ機能
+            document.querySelectorAll('.hierarchy-card').forEach(card => {
+                card.addEventListener('click', function() {
+                    // アニメーション効果
+                    this.style.transform = 'scale(1.02)';
+                    setTimeout(() => {
+                        this.style.transform = 'scale(1)';
+                    }, 200);
+                });
+            });
+        });
+
+        // セクション変更時の処理
+        document.addEventListener('sectionChanged', function(e) {
+            const section = e.detail.section;
+            
+            // セクション固有のアニメーション
+            if (section === 'implementation') {
+                // 実装セクションでのコードハイライト
+                document.querySelectorAll('.code-implementation').forEach(code => {
+                    code.style.borderColor = '#f9c74f';
+                    setTimeout(() => {
+                        code.style.borderColor = '#30363d';
+                    }, 1000);
+                });
+            }
+            
+            if (section === 'positioning') {
+                // パフォーマンスメトリクスのアニメーション
+                document.querySelectorAll('.metric-value').forEach(metric => {
+                    metric.style.animation = 'pulse 2s ease-in-out';
+                });
+            }
+        });
+
+        // CSSアニメーション定義
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes pulse {
+                0% { transform: scale(1); color: #4ec9b0; }
+                50% { transform: scale(1.1); color: #f9c74f; }
+                100% { transform: scale(1); color: #4ec9b0; }
+            }
+            
+            .page-size-visual {
+                animation: gradientShift 3s ease-in-out infinite;
+            }
+            
+            @keyframes gradientShift {
+                0%, 100% { opacity: 0.8; }
+                50% { opacity: 1; }
+            }
+            
+            .hierarchy-level.skipped {
+                animation: strikethrough 0.5s ease-in-out;
+            }
+            
+            @keyframes strikethrough {
+                0% { text-decoration: none; opacity: 1; }
+                100% { text-decoration: line-through; opacity: 0.6; }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+</html>
