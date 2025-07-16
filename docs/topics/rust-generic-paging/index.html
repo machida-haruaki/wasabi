@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rustジェネリック構造体によるページテーブル実装 - WasabiOS 技術解説</title>
+    <link rel="stylesheet" href="../../assets/style.css">
+    <style>
+        /* 統一学習体験用のスタイル */
+        .learning-section {
+            margin: 40px 0;
+            padding: 30px;
+            border-radius: 12px;
+            border-left: 5px solid;
+            transition: all 0.3s ease;
+        }
+
+        .learning-section.overview {
+            background: linear-gradient(135deg, #1e3a32 0%, #2d4f42 100%);
+            border-left-color: #4ec9b0;
+        }
+
+        .learning-section.generics {
+            background: linear-gradient(135deg, #264f78 0%, #3a6ba5 100%);
+            border-left-color: #007acc;
+        }
+
+        .learning-section.implementation {
+            background: linear-gradient(135deg, #3a2e1e 0%, #4f3e2a 100%);
+            border-left-color: #f9c74f;
+        }
+
+        .learning-section.results {
+            background: linear-gradient(135deg, #2e3a1e 0%, #3e4f2a 100%);
+            border-left-color: #9cdcfe;
+        }
+
+        .learning-section.conclusion {
+            background: linear-gradient(135deg, #3a1e3a 0%, #4f2a4f 100%);
+            border-left-color: #c586c0;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .section-icon {
+            font-size: 2.5rem;
+            margin-right: 15px;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .section-subtitle {
+            font-size: 1rem;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        .code-implementation {
+            background: #0d1117;
+            border: 2px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+
+        .code-explanation {
+            background: rgba(255, 255, 255, 0.05);
+            border-left: 4px solid #007acc;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .comparison-table th {
+            background: rgba(255, 255, 255, 0.1);
+            font-weight: 600;
+        }
+
+        .comparison-table tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .learning-checkpoint {
+            background: rgba(78, 201, 176, 0.1);
+            border: 2px solid #4ec9b0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+        }
+
+        .checkpoint-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #4ec9b0;
+            margin-bottom: 10px;
+        }
+
+        .output-display {
+            background: #0d1117;
+            border: 2px solid #4ec9b0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .output-line {
+            margin: 2px 0;
+            line-height: 1.4;
+        }
+
+        .output-highlight {
+            background: rgba(249, 199, 79, 0.3);
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        .type-hierarchy {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            flex-wrap: wrap;
+        }
+
+        .type-level {
+            text-align: center;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            margin: 5px;
+            min-width: 120px;
+        }
+
+        .type-level.current {
+            background: rgba(249, 199, 79, 0.3);
+            border: 2px solid #f9c74f;
+        }
+
+        .arrow {
+            font-size: 1.5rem;
+            color: #4ec9b0;
+            margin: 0 10px;
+        }
+
+        .generic-explanation {
+            background: rgba(0, 122, 204, 0.1);
+            border: 2px solid #007acc;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .impl-pattern {
+            background: rgba(249, 199, 79, 0.1);
+            border: 2px solid #f9c74f;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .next-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .next-step-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .next-step-card:hover {
+            border-color: #007acc;
+            transform: translateY(-2px);
+        }
+
+        .step-card-title {
+            font-weight: 600;
+            color: #569cd6;
+            margin-bottom: 8px;
+        }
+
+        @media (max-width: 768px) {
+            .learning-section {
+                margin: 20px 0;
+                padding: 20px;
+            }
+            
+            .section-icon {
+                width: 50px;
+                height: 50px;
+                font-size: 2rem;
+            }
+            
+            .section-title {
+                font-size: 1.5rem;
+            }
+
+            .type-hierarchy {
+                flex-direction: column;
+            }
+
+            .arrow {
+                transform: rotate(90deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- ヘッダー -->
+        <header class="page-header">
+            <h1 class="page-title">🦀 Rustジェネリック構造体によるページテーブル実装</h1>
+            <p class="page-subtitle">型安全で効率的なメモリ管理システムの実装技術</p>
+        </header>
+
+        <!-- パンくずリスト -->
+        <nav class="breadcrumb">
+            <a href="../../index.html">🏠 ホーム</a>
+            <span>></span>
+            <a href="../../index.html#memory-management">メモリ管理</a>
+            <span>></span>
+            <span>Rustジェネリック構造体によるページテーブル実装</span>
+        </nav>
+
+        <!-- メインコンテンツ -->
+        <main>
+            <!-- セクション1: 実装概要 -->
+            <section class="learning-section overview" id="section-overview">
+                <div class="section-header">
+                    <div class="section-icon">🌟</div>
+                    <div>
+                        <h2 class="section-title">実装概要</h2>
+                        <p class="section-subtitle">従来の配列ベースから型安全な階層構造への進化</p>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔄 実装の変更点</h3>
+                    <p>今回の実装では、WasabiOSのページテーブル管理を根本的に改善しました。</p>
+                </div>
+
+                <table class="comparison-table">
+                    <h3>⚖️ 実装手法の比較</h3>
+                    <thead>
+                        <tr>
+                            <th>項目</th>
+                            <th>従来の実装</th>
+                            <th>新しい実装</th>
+                            <th>改善効果</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>データ構造</strong></td>
+                            <td><code>[u8; 1024]</code></td>
+                            <td><code>Table&lt;LEVEL, SHIFT, NEXT&gt;</code></td>
+                            <td>型安全性の向上</td>
+                        </tr>
+                        <tr>
+                            <td><strong>階層表現</strong></td>
+                            <td>単一の配列</td>
+                            <td>4レベルの型階層</td>
+                            <td>構造の明確化</td>
+                        </tr>
+                        <tr>
+                            <td><strong>エラー検出</strong></td>
+                            <td>実行時エラー</td>
+                            <td>コンパイル時エラー</td>
+                            <td>バグの早期発見</td>
+                        </tr>
+                        <tr>
+                            <td><strong>デバッグ支援</strong></td>
+                            <td>hexdumpのみ</td>
+                            <td>構造化された表示</td>
+                            <td>可読性の向上</td>
+                        </tr>
+                        <tr>
+                            <td><strong>拡張性</strong></td>
+                            <td>限定的</td>
+                            <td>高い拡張性</td>
+                            <td>将来の機能追加</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="code-implementation">
+                    <h3>📝 変更されたコード</h3>
+                    <pre><code><span style="color: #569cd6;">// 従来の実装</span>
+<span style="color: #c586c0;">pub type</span> <span style="color: #4ec9b0;">RootPageTable</span> = [<span style="color: #569cd6;">u8</span>; <span style="color: #b5cea8;">1024</span>];
+
+<span style="color: #c586c0;">pub fn</span> <span style="color: #dcdcaa;">read_cr3</span>() -> *<span style="color: #c586c0;">mut</span> <span style="color: #4ec9b0;">RootPageTable</span> {
+    <span style="color: #569cd6;">// ...</span>
+}
+
+<span style="color: #569cd6;">// 新しい実装</span>
+<span style="color: #c586c0;">pub type</span> <span style="color: #4ec9b0;">PT</span> = <span style="color: #4ec9b0;">Table</span>&lt;<span style="color: #b5cea8;">1</span>, <span style="color: #b5cea8;">12</span>, [<span style="color: #569cd6;">u8</span>; <span style="color: #4ec9b0;">PAGE_SIZE</span>]&gt;;
+<span style="color: #c586c0;">pub type</span> <span style="color: #4ec9b0;">PD</span> = <span style="color: #4ec9b0;">Table</span>&lt;<span style="color: #b5cea8;">2</span>, <span style="color: #b5cea8;">21</span>, <span style="color: #4ec9b0;">PT</span>&gt;;
+<span style="color: #c586c0;">pub type</span> <span style="color: #4ec9b0;">PDPT</span> = <span style="color: #4ec9b0;">Table</span>&lt;<span style="color: #b5cea8;">3</span>, <span style="color: #b5cea8;">30</span>, <span style="color: #4ec9b0;">PD</span>&gt;;
+<span style="color: #c586c0;">pub type</span> <span style="color: #4ec9b0;">PML4</span> = <span style="color: #4ec9b0;">Table</span>&lt;<span style="color: #b5cea8;">4</span>, <span style="color: #b5cea8;">39</span>, <span style="color: #4ec9b0;">PDPT</span>&gt;;
+
+<span style="color: #c586c0;">pub fn</span> <span style="color: #dcdcaa;">read_cr3</span>() -> *<span style="color: #c586c0;">mut</span> <span style="color: #4ec9b0;">PML4</span> {
+    <span style="color: #569cd6;">// ...</span>
+}</code></pre>
+                </div>
+
+                <div class="type-hierarchy">
+                    <div class="type-level">
+                        <strong>PML4</strong><br>
+                        <small>Level 4</small><br>
+                        <code>Table&lt;4,39,PDPT&gt;</code>
+                    </div>
+                    <div class="arrow">→</div>
+                    <div class="type-level">
+                        <strong>PDPT</strong><br>
+                        <small>Level 3</small><br>
+                        <code>Table&lt;3,30,PD&gt;</code>
+                    </div>
+                    <div class="arrow">→</div>
+                    <div class="type-level">
+                        <strong>PD</strong><br>
+                        <small>Level 2</small><br>
+                        <code>Table&lt;2,21,PT&gt;</code>
+                    </div>
+                    <div class="arrow">→</div>
+                    <div class="type-level">
+                        <strong>PT</strong><br>
+                        <small>Level 1</small><br>
+                        <code>Table&lt;1,12,[u8]&gt;</code>
+                    </div>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎯 理解チェックポイント</div>
+                    <p>従来の単純な配列ベースの実装から、型安全な階層構造への変更の意義を理解できましたか？</p>
+                </div>
+            </section>
+
+            <!-- セクション2: Rustジェネリック構造体の解説 -->
+            <section class="learning-section generics" id="section-generics">
+                <div class="section-header">
+                    <div class="section-icon">🧬</div>
+                    <div>
+                        <h2 class="section-title">Rustジェネリック構造体の解説</h2>
+                        <p class="section-subtitle">型パラメータと定数ジェネリクスの活用</p>
+                    </div>
+                </div>
+
+                <div class="generic-explanation">
+                    <h3>🔧 ジェネリック構造体とは</h3>
+                    <p><strong>ジェネリック構造体</strong>は、型をパラメータとして受け取る構造体です。同じ構造でも異なる型で使い回せるため、コードの再利用性と型安全性を両立できます。</p>
+                    
+                    <div class="code-implementation">
+                        <h4>基本的な例</h4>
+                        <pre><code><span style="color: #569cd6;">// 基本的なジェネリック構造体</span>
+<span style="color: #c586c0;">struct</span> <span style="color: #4ec9b0;">Container</span>&lt;<span style="color: #4ec9b0;">T</span>&gt; {
+    <span style="color: #9cdcfe;">value</span>: <span style="color: #4ec9b0;">T</span>,
+}
+
+<span style="color: #569cd6;">// 使用例</span>
+<span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">int_container</span> = <span style="color: #4ec9b0;">Container</span> { <span style="color: #9cdcfe;">value</span>: <span style="color: #b5cea8;">42i32</span> };
+<span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">string_container</span> = <span style="color: #4ec9b0;">Container</span> { <span style="color: #9cdcfe;">value</span>: <span style="color: #ce9178;">"Hello"</span>.<span style="color: #dcdcaa;">to_string</span>() };</code></pre>
+                    </div>
+                </div>
+
+                <div class="generic-explanation">
+                    <h3>🔢 定数ジェネリクス（Const Generics）</h3>
+                    <p>WasabiOSの実装では、<strong>定数ジェネリクス</strong>を活用しています。これは型だけでなく、定数値もパラメータとして受け取る機能です。</p>
+                    
+                    <div class="code-implementation">
+                        <h4>WasabiOSでの使用例</h4>
+                        <pre><code><span style="color: #c586c0;">pub struct</span> <span style="color: #4ec9b0;">Entry</span>&lt;<span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">LEVEL</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">SHIFT</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; {
+    <span style="color: #9cdcfe;">value</span>: <span style="color: #569cd6;">u64</span>,
+    <span style="color: #9cdcfe;">next_type</span>: <span style="color: #4ec9b0;">PhantomData</span>&lt;<span style="color: #4ec9b0;">NEXT</span>&gt;,
+}</code></pre>
+                    </div>
+
+                    <div style="margin: 20px 0;">
+                        <h4>🎯 パラメータの説明</h4>
+                        <ul>
+                            <li><strong><code>const LEVEL: usize</code></strong>: ページテーブルのレベル（1-4）</li>
+                            <li><strong><code>const SHIFT: usize</code></strong>: アドレス計算用のビットシフト値</li>
+                            <li><strong><code>NEXT</code></strong>: 次のレベルの型（型パラメータ）</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="generic-explanation">
+                    <h3>👻 PhantomDataの役割</h3>
+                    <p><strong>PhantomData</strong>は「幽霊データ」で、実際にはメモリを消費しないが型システムに型情報を伝える仕組みです。</p>
+                    
+                    <div class="code-implementation">
+                        <pre><code><span style="color: #c586c0;">use</span> <span style="color: #4ec9b0;">core</span>::<span style="color: #4ec9b0;">marker</span>::<span style="color: #4ec9b0;">PhantomData</span>;
+
+<span style="color: #569cd6;">// PhantomDataがない場合、NEXTが使われていないとコンパイラが警告</span>
+<span style="color: #569cd6;">// PhantomDataがあることで、NEXTが型システムで使用されていることを示す</span>
+<span style="color: #9cdcfe;">next_type</span>: <span style="color: #4ec9b0;">PhantomData</span>&lt;<span style="color: #4ec9b0;">NEXT</span>&gt;,</code></pre>
+                    </div>
+
+                    <div style="background: rgba(78, 201, 176, 0.1); padding: 15px; border-radius: 8px; margin: 15px 0;">
+                        <h4 style="color: #4ec9b0;">💡 PhantomDataの利点</h4>
+                        <ul>
+                            <li><strong>メモリサイズ</strong>: 0バイト（実行時オーバーヘッドなし）</li>
+                            <li><strong>目的</strong>: 型システムに<code>NEXT</code>が使用されていることを示す</li>
+                            <li><strong>効果</strong>: <code>NEXT</code>が「未使用」警告を出さない</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="impl-pattern">
+                    <h3>🔧 implブロックでの型パラメータ再宣言</h3>
+                    <p>ジェネリック構造体にメソッドを実装する際は、<strong>implブロックで型パラメータを再宣言</strong>する必要があります。</p>
+                    
+                    <div class="code-implementation">
+                        <pre><code><span style="color: #569cd6;">// 構造体の定義</span>
+<span style="color: #c586c0;">pub struct</span> <span style="color: #4ec9b0;">Entry</span>&lt;<span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">LEVEL</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">SHIFT</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; {
+    <span style="color: #9cdcfe;">value</span>: <span style="color: #569cd6;">u64</span>,
+    <span style="color: #9cdcfe;">next_type</span>: <span style="color: #4ec9b0;">PhantomData</span>&lt;<span style="color: #4ec9b0;">NEXT</span>&gt;,
+}
+
+<span style="color: #569cd6;">// implブロックでの再宣言</span>
+<span style="color: #c586c0;">impl</span>&lt;<span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">LEVEL</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">SHIFT</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; <span style="color: #4ec9b0;">Entry</span>&lt;<span style="color: #4ec9b0;">LEVEL</span>, <span style="color: #4ec9b0;">SHIFT</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; {
+    <span style="color: #c586c0;">fn</span> <span style="color: #dcdcaa;">read_value</span>(&<span style="color: #c586c0;">self</span>) -> <span style="color: #569cd6;">u64</span> {
+        <span style="color: #c586c0;">self</span>.<span style="color: #9cdcfe;">value</span>
+    }
+    
+    <span style="color: #c586c0;">fn</span> <span style="color: #dcdcaa;">table</span>(&<span style="color: #c586c0;">self</span>) -> <span style="color: #4ec9b0;">Result</span>&lt;&<span style="color: #4ec9b0;">NEXT</span>&gt; {
+        <span style="color: #569cd6;">// NEXTを戻り値の型として使用</span>
+        <span style="color: #c586c0;">if</span> <span style="color: #c586c0;">self</span>.<span style="color: #dcdcaa;">is_present</span>() {
+            <span style="color: #4ec9b0;">Ok</span>(<span style="color: #c586c0;">unsafe</span> { &*((<span style="color: #c586c0;">self</span>.<span style="color: #9cdcfe;">value</span> & !<span style="color: #4ec9b0;">ATTR_MASK</span>) <span style="color: #c586c0;">as</span> *<span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">NEXT</span> ) })
+        } <span style="color: #c586c0;">else</span> {
+            <span style="color: #4ec9b0;">Err</span>(<span style="color: #ce9178;">"Page Not Found"</span>)
+        }
+    }
+}</code></pre>
+                    </div>
+
+                    <div style="background: rgba(249, 199, 79, 0.1); padding: 15px; border-radius: 8px; margin: 15px 0;">
+                        <h4 style="color: #f9c74f;">🤔 なぜ再宣言が必要？</h4>
+                        <ul>
+                            <li><strong>implブロックは独立したスコープ</strong></li>
+                            <li><strong>構造体で宣言したパラメータを<code>impl</code>内で使うには再宣言が必要</strong></li>
+                            <li><strong>「どんな型パラメータの時に」という条件を明示</strong></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="generic-explanation">
+                    <h3>🔄 型の具体化プロセス</h3>
+                    <p>コンパイル時に、ジェネリック構造体は具体的な型に展開されます。</p>
+                    
+                    <div class="code-implementation">
+                        <h4>型エイリアス定義</h4>
+                        <pre><code><span style="color: #c586c0;">pub type</span> <span style="color: #4ec9b0;">PT</span> = <span style="color: #4ec9b0;">Table</span>&lt;<span style="color: #b5cea8;">1</span>, <span style="color: #b5cea8;">12</span>, [<span style="color: #569cd6;">u8</span>; <span style="color: #4ec9b0;">PAGE_SIZE</span>]&gt;;
+<span style="color: #c586c0;">pub type</span> <span style="color: #4ec9b0;">PD</span> = <span style="color: #4ec9b0;">Table</span>&lt;<span style="color: #b5cea8;">2</span>, <span style="color: #b5cea8;">21</span>, <span style="color: #4ec9b0;">PT</span>&gt;;
+<span style="color: #c586c0;">pub type</span> <span style="color: #4ec9b0;">PDPT</span> = <span style="color: #4ec9b0;">Table</span>&lt;<span style="color: #b5cea8;">3</span>, <span style="color: #b5cea8;">30</span>, <span style="color: #4ec9b0;">PD</span>&gt;;
+<span style="color: #c586c0;">pub type</span> <span style="color: #4ec9b0;">PML4</span> = <span style="color: #4ec9b0;">Table</span>&lt;<span style="color: #b5cea8;">4</span>, <span style="color: #b5cea8;">39</span>, <span style="color: #4ec9b0;">PDPT</span>&gt;;</code></pre>
+                    </div>
+
+                    <div style="background: rgba(78, 201, 176, 0.1); padding: 15px; border-radius: 8px; margin: 15px 0;">
+                        <h4 style="color: #4ec9b0;">🎯 コンパイル時の具体化</h4>
+                        <p>これらの型エイリアスにより、コンパイラは以下の具体的な型を生成します：</p>
+                        <ul>
+                            <li><code>PML4 = Table&lt;4, 39, PDPT&gt;</code></li>
+                            <li><code>PDPT = Table&lt;3, 30, PD&gt;</code></li>
+                            <li><code>PD = Table&lt;2, 21, PT&gt;</code></li>
+                            <li><code>PT = Table&lt;1, 12, [u8; 4096]&gt;</code></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎯 理解チェックポイント</div>
+                    <p>Rustのジェネリック構造体、定数ジェネリクス、PhantomData、implブロックでの型パラメータ再宣言について理解できましたか？</p>
+                </div>
+            </section>
+
+            <!-- セクション3: 実装の詳細 -->
+            <section class="learning-section implementation" id="section-implementation">
+                <div class="section-header">
+                    <div class="section-icon">⚙️</div>
+                    <div>
+                        <h2 class="section-title">実装の詳細</h2>
+                        <p class="section-subtitle">Entry構造体とTable構造体の設計</p>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🏗️ Entry構造体の設計</h3>
+                    <p>各ページテーブルエントリを表現する構造体です。</p>
+                </div>
+
+                <div class="code-implementation">
+                    <h4>Entry構造体の完全な実装</h4>
+                    <pre><code><span style="color: #c586c0;">#[repr(transparent)]</span>
+<span style="color: #c586c0;">pub struct</span> <span style="color: #4ec9b0;">Entry</span>&lt;<span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">LEVEL</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">SHIFT</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; {
+    <span style="color: #9cdcfe;">value</span>: <span style="color: #569cd6;">u64</span>,
+    <span style="color: #9cdcfe;">next_type</span>: <span style="color: #4ec9b0;">PhantomData</span>&lt;<span style="color: #4ec9b0;">NEXT</span>&gt;,
+}
+
+<span style="color: #c586c0;">impl</span>&lt;<span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">LEVEL</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">SHIFT</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; <span style="color: #4ec9b0;">Entry</span>&lt;<span style="color: #4ec9b0;">LEVEL</span>, <span style="color: #4ec9b0;">SHIFT</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; {
+    <span style="color: #c586c0;">fn</span> <span style="color: #dcdcaa;">read_value</span>(&<span style="color: #c586c0;">self</span>) -> <span style="color: #569cd6;">u64</span> {
+        <span style="color: #c586c0;">self</span>.<span style="color: #9cdcfe;">value</span>
+    }
+    
+    <span style="color: #c586c0;">fn</span> <span style="color: #dcdcaa;">is_present</span>(&<span style="color: #c586c0;">self</span>) -> <span style="color: #569cd6;">bool</span> {
+        (<span style="color: #c586c0;">self</span>.<span style="color: #dcdcaa;">read_value</span>() & (<span style="color: #b5cea8;">1</span> &lt;&lt; <span style="color: #b5cea8;">0</span>)) != <span style="color: #b5cea8;">0</span>
+    }
+    
+    <span style="color: #c586c0;">fn</span> <span style="color: #dcdcaa;">is_writable</span>(&<span style="color: #c586c0;">self</span>) -> <span style="color: #569cd6;">bool</span> {
+        (<span style="color: #c586c0;">self</span>.<span style="color: #dcdcaa;">read_value</span>() & (<span style="color: #b5cea8;">1</span> &lt;&lt; <span style="color: #b5cea8;">1</span>)) != <span style="color: #b5cea8;">0</span>
+    }
+    
+    <span style="color: #c586c0;">fn</span> <span style="color: #dcdcaa;">is_user</span>(&<span style="color: #c586c0;">self</span>) -> <span style="color: #569cd6;">bool</span> {
+        (<span style="color: #c586c0;">self</span>.<span style="color: #dcdcaa;">read_value</span>() & (<span style="color: #b5cea8;">1</span> &lt;&lt; <span style="color: #b5cea8;">2</span>)) != <span style="color: #b5cea8;">0</span>
+    }
+    
+    <span style="color: #c586c0;">fn</span> <span style="color: #dcdcaa;">table</span>(&<span style="color: #c586c0;">self</span>) -> <span style="color: #4ec9b0;">Result</span>&lt;&<span style="color: #4ec9b0;">NEXT</span>&gt; {
+        <span style="color: #c586c0;">if</span> <span style="color: #c586c0;">self</span>.<span style="color: #dcdcaa;">is_present</span>() {
+            <span style="color: #4ec9b0;">Ok</span>(<span style="color: #c586c0;">unsafe</span> { &*((<span style="color: #c586c0;">self</span>.<span style="color: #9cdcfe;">value</span> & !<span style="color: #4ec9b0;">ATTR_MASK</span>) <span style="color: #c586c0;">as</span> *<span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">NEXT</span> ) })
+        } <span style="color: #c586c0;">else</span> {
+            <span style="color: #4ec9b0;">Err</span>(<span style="color: #ce9178;">"Page Not Found"</span>)
+        }
+    }
+}</code></pre>
+                </div>
+
+                <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                    <h4 style="color: #f9c74f;">🔍 重要な設計ポイント</h4>
+                    <ul>
+                        <li><strong><code>#[repr(transparent)]</code></strong>: 構造体のメモリレイアウトを内部のu64と同じにする</li>
+                        <li><strong>PhantomData</strong>: 実行時オーバーヘッドなしで型情報を保持</li>
+                        <li><strong>フラグ解析メソッド</strong>: ページテーブルエントリの属性を型安全に取得</li>
+                        <li><strong>table()メソッド</strong>: 次のレベルへの型安全な参照を提供</li>
+                    </ul>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🏛️ Table構造体の設計</h3>
+                    <p>512個のエントリを持つページテーブルを表現する構造体です。</p>
+                </div>
+
+                <div class="code-implementation">
+                    <h4>Table構造体の完全な実装</h4>
+                    <pre><code><span style="color: #c586c0;">#[repr(align(4096))]</span>
+<span style="color: #c586c0;">pub struct</span> <span style="color: #4ec9b0;">Table</span>&lt;<span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">LEVEL</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">SHIFT</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; {
+    <span style="color: #9cdcfe;">entry</span>: [<span style="color: #4ec9b0;">Entry</span>&lt;<span style="color: #4ec9b0;">LEVEL</span>, <span style="color: #4ec9b0;">SHIFT</span>, <span style="color: #4ec9b0;">NEXT</span>&gt;; <span style="color: #b5cea8;">512</span>],
+}
+
+<span style="color: #c586c0;">impl</span>&lt;<span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">LEVEL</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">SHIFT</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #4ec9b0;">NEXT</span>: <span style="color: #4ec9b0;">core</span>::<span style="color: #4ec9b0;">fmt</span>::<span style="color: #4ec9b0;">Debug</span>&gt; <span style="color: #4ec9b0;">Table</span>&lt;<span style="color: #4ec9b0;">LEVEL</span>, <span style="color: #4ec9b0;">SHIFT</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; {
+    <span style="color: #c586c0;">fn</span> <span style="color: #dcdcaa;">format</span>(&<span style="color: #c586c0;">self</span>, <span style="color: #9cdcfe;">f</span>: &<span style="color: #c586c0;">mut</span> <span style="color: #4ec9b0;">fmt</span>::<span style="color: #4ec9b0;">Formatter</span>) -> <span style="color: #4ec9b0;">fmt</span>::<span style="color: #4ec9b0;">Result</span> {
+        <span style="color: #dcdcaa;">writeln!</span>(<span style="color: #9cdcfe;">f</span>, <span style="color: #ce9178;">"L{}Table @ {:#p} {{"</span>, <span style="color: #4ec9b0;">LEVEL</span>, <span style="color: #c586c0;">self</span>)?;
+        <span style="color: #c586c0;">for</span> <span style="color: #9cdcfe;">i</span> <span style="color: #c586c0;">in</span> <span style="color: #b5cea8;">0</span>..<span style="color: #b5cea8;">512</span> {
+            <span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">e</span> = &<span style="color: #c586c0;">self</span>.<span style="color: #9cdcfe;">entry</span>[<span style="color: #9cdcfe;">i</span>];
+            <span style="color: #c586c0;">if</span> !<span style="color: #9cdcfe;">e</span>.<span style="color: #dcdcaa;">is_present</span>() {
+                <span style="color: #c586c0;">continue</span>;
+            }
+            <span style="color: #dcdcaa;">writeln!</span>(<span style="color: #9cdcfe;">f</span>, <span style="color: #ce9178;">" entry[{:3}] = {:?}"</span>, <span style="color: #9cdcfe;">i</span>, <span style="color: #9cdcfe;">e</span>)?;
+        }
+        <span style="color: #dcdcaa;">writeln!</span>(<span style="color: #9cdcfe;">f</span>,<span style="color: #ce9178;">"}}"</span>)
+    }
+    
+    <span style="color: #c586c0;">pub fn</span> <span style="color: #dcdcaa;">next_level</span>(&<span style="color: #c586c0;">self</span>, <span style="color: #9cdcfe;">index</span>: <span style="color: #569cd6;">usize</span>) -> <span style="color: #4ec9b0;">Option</span>&lt;&<span style="color: #4ec9b0;">NEXT</span>&gt; {
+        <span style="color: #c586c0;">self</span>.<span style="color: #9cdcfe;">entry</span>.<span style="color: #dcdcaa;">get</span>(<span style="color: #9cdcfe;">index</span>).<span style="color: #dcdcaa;">and_then</span>(|<span style="color: #9cdcfe;">e</span>| <span style="color: #9cdcfe;">e</span>.<span style="color: #dcdcaa;">table</span>().<span style="color: #dcdcaa;">ok</span>())
+    }
+}</code></pre>
+                </div>
+
+                <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                    <h4 style="color: #007acc;">🔍 重要な設計ポイント</h4>
+                    <ul>
+                        <li><strong><code>#[repr(align(4096))]</code></strong>: 4KBページ境界にアライメント</li>
+                        <li><strong>512エントリ</strong>: x86_64の標準的なページテーブルサイズ</li>
+                        <li><strong>トレイト制約</strong>: <code>NEXT: Debug</code>でデバッグ表示を可能に</li>
+                        <li><strong>フィルタリング</strong>: 存在するエントリのみを表示</li>
+                        <li><strong>型安全なナビゲーション</strong>: <code>next_level()</code>で次のレベルへ安全にアクセス</li>
+                    </ul>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🎨 デバッグ表示の実装</h3>
+                    <p>構造化されたデバッグ出力により、ページテーブルの内容を人間が読める形で表示します。</p>
+                </div>
+
+                <div class="code-implementation">
+                    <h4>Debug traitの実装</h4>
+                    <pre><code><span style="color: #c586c0;">impl</span>&lt;<span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">LEVEL</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #c586c0;">const</span> <span style="color: #4ec9b0;">SHIFT</span>: <span style="color: #569cd6;">usize</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; <span style="color: #4ec9b0;">fmt</span>::<span style="color: #4ec9b0;">Display</span> <span style="color: #c586c0;">for</span> <span style="color: #4ec9b0;">Entry</span>&lt;<span style="color: #4ec9b0;">LEVEL</span>, <span style="color: #4ec9b0;">SHIFT</span>, <span style="color: #4ec9b0;">NEXT</span>&gt; {
+    <span style="color: #c586c0;">fn</span> <span style="color: #dcdcaa;">fmt</span>(&<span style="color: #c586c0;">self</span>, <span style="color: #9cdcfe;">f</span>: &<span style="color: #c586c0;">mut</span> <span style="color: #4ec9b0;">fmt</span>::<span style="color: #4ec9b0;">Formatter</span>) -> <span style="color: #4ec9b0;">fmt</span>::<span style="color: #4ec9b0;">Result</span> {
+        <span style="color: #dcdcaa;">write!</span>(
+            <span style="color: #9cdcfe;">f</span>,
+            <span style="color: #ce9178;">"L{}Entry @ {:#p} {{ {:#018x} {}{}{}"</span>,
+            <span style="color: #4ec9b0;">LEVEL</span>,
+            <span style="color: #c586c0;">self</span>,
+            <span style="color: #c586c0;">self</span>.<span style="color: #dcdcaa;">read_value</span>(),
+            <span style="color: #c586c0;">if</span> <span style="color: #c586c0;">self</span>.<span style="color: #dcdcaa;">is_present</span>() { <span style="color: #ce9178;">"P"</span> } <span style="color: #c586c0;">else</span> { <span style="color: #ce9178;">"N"</span> },
+            <span style="color: #c586c0;">if</span> <span style="color: #c586c0;">self</span>.<span style="color: #dcdcaa;">is_writable</span>() { <span style="color: #ce9178;">"W"</span> } <span style="color: #c586c0;">else</span> { <span style="color: #ce9178;">"R"</span> },
+            <span style="color: #c586c0;">if</span> <span style="color: #c586c0;">self</span>.<span style="color: #dcdcaa;">is_user</span>() { <span style="color: #ce9178;">"U"</span> } <span style="color: #c586c0;">else</span> { <span style="color: #ce9178;">"S"</span> }
+        )?;
+        <span style="color: #dcdcaa;">write!</span>(<span style="color: #9cdcfe;">f</span>, <span style="color: #ce9178;">"}}"</span>)
+    }
+}</code></pre>
+                </div>
+
+                <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                    <h4 style="color: #4ec9b0;">🎯 デバッグ出力の特徴</h4>
+                    <ul>
+                        <li><strong>レベル表示</strong>: <code>L4Entry</code>, <code>L3Entry</code>などでレベルを明示</li>
+                        <li><strong>アドレス表示</strong>: エントリの物理アドレスを表示</li>
+                        <li><strong>値の表示</strong>: 64bit値を16進数で表示</li>
+                        <li><strong>フラグの表示</strong>: P(Present), W(Writable), U(User), S(Supervisor)</li>
+                        <li><strong>存在フィルタ</strong>: 存在するエントリのみを表示してノイズを削減</li>
+                    </ul>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎯 理解チェックポイント</div>
+                    <p>Entry構造体とTable構造体の設計、デバッグ機能の実装について理解できましたか？</p>
+                </div>
+            </section>
+
+            <!-- セクション4: 実行結果の解析 -->
+            <section class="learning-section results" id="section-results">
+                <div class="section-header">
+                    <div class="section-icon">📊</div>
+                    <div>
+                        <h2 class="section-title">実行結果の解析</h2>
+                        <p class="section-subtitle">実際の動作とページテーブル階層の探索</p>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🚀 main.rsでのテストコード</h3>
+                    <p>実装した構造体を使って、実際のページテーブル階層を探索するコードです。</p>
+                </div>
+
+                <div class="code-implementation">
+                    <h4>階層探索のテストコード</h4>
+                    <pre><code><span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">cr3</span> = <span style="color: #4ec9b0;">wasabi</span>::<span style="color: #4ec9b0;">x86</span>::<span style="color: #dcdcaa;">read_cr3</span>();
+<span style="color: #dcdcaa;">println!</span>(<span style="color: #ce9178;">"cr3 = {cr3:#p}"</span>);
+
+<span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">t</span> = <span style="color: #4ec9b0;">Some</span>(<span style="color: #c586c0;">unsafe</span> { &*<span style="color: #9cdcfe;">cr3</span> });
+<span style="color: #dcdcaa;">println!</span>(<span style="color: #ce9178;">"{t:?}"</span>);
+
+<span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">t</span> = <span style="color: #9cdcfe;">t</span>.<span style="color: #dcdcaa;">and_then</span>(|<span style="color: #9cdcfe;">t</span>| <span style="color: #9cdcfe;">t</span>.<span style="color: #dcdcaa;">next_level</span>(<span style="color: #b5cea8;">0</span>));
+<span style="color: #dcdcaa;">println!</span>(<span style="color: #ce9178;">"{t:?}"</span>);
+
+<span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">t</span> = <span style="color: #9cdcfe;">t</span>.<span style="color: #dcdcaa;">and_then</span>(|<span style="color: #9cdcfe;">t</span>| <span style="color: #9cdcfe;">t</span>.<span style="color: #dcdcaa;">next_level</span>(<span style="color: #b5cea8;">0</span>));
+<span style="color: #dcdcaa;">println!</span>(<span style="color: #ce9178;">"{t:?}"</span>);
+
+<span style="color: #c586c0;">let</span> <span style="color: #9cdcfe;">t</span> = <span style="color: #9cdcfe;">t</span>.<span style="color: #dcdcaa;">and_then</span>(|<span style="color: #9cdcfe;">t</span>| <span style="color: #9cdcfe;">t</span>.<span style="color: #dcdcaa;">next_level</span>(<span style="color: #b5cea8;">0</span>));
+<span style="color: #dcdcaa;">println!</span>(<span style="color: #ce9178;">"{t:?}"</span>);</code></pre>
+                </div>
+
+                <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                    <h4 style="color: #f9c74f;">🔍 コードの動作解析</h4>
+                    <ul>
+                        <li><strong>1行目</strong>: CR3レジスタから<code>PML4</code>テーブルのポインタを取得</li>
+                        <li><strong>2行目</strong>: <code>PML4</code>テーブル全体をデバッグ表示</li>
+                        <li><strong>3行目</strong>: <code>PML4[0]</code>から<code>PDPT</code>テーブルを取得・表示</li>
+                        <li><strong>4行目</strong>: <code>PDPT[0]</code>から<code>PD</code>テーブルを取得・表示</li>
+                        <li><strong>5行目</strong>: <code>PD[0]</code>から次のレベルを取得・表示（実際は2MBページで終了）</li>
+                    </ul>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>📊 実際の実行結果</h3>
+                    <p>WasabiOSを実行した際の実際の出力結果を解析してみましょう。</p>
+                </div>
+
+                <div class="output-display">
+                    <div class="output-line">cr3 = <span class="output-highlight">0x00000000bfc01000</span></div>
+                    <div class="output-line">Some(L4Table @ 0x00000000bfc01000 {</div>
+                    <div class="output-line"> entry[  0] = <span class="output-highlight">L4Entry @ 0x00000000bfc01000 { 0x00000000bfc02023 PWS}</span></div>
+                    <div class="output-line">}</div>
+                    <div class="output-line">)</div>
+                    <div class="output-line">Some(L3Table @ 0x00000000bfc02000 {</div>
+                    <div class="output-line"> entry[  0] = L3Entry @ 0x00000000bfc02000 { 0x00000000bfc03023 PWS}</div>
+                    <div class="output-line"> entry[  1] = L3Entry @ 0x00000000bfc02008 { 0x00000000bfc04003 PWS}</div>
+                    <div class="output-line"> ...</div>
+                    <div class="output-line"> entry[ 63] = L3Entry @ 0x00000000bfc021f8 { 0x00000000bfc42003 PWS}</div>
+                    <div class="output-line">}</div>
+                    <div class="output-line">)</div>
+                    <div class="output-line">Some(L2Table @ 0x00000000bfc03000 {</div>
+                    <div class="output-line"> entry[  0] = L2Entry @ 0x00000000bfc03000 { 0x00000000000000e3 PWS}</div>
+                    <div class="output-line"> entry[  1] = L2Entry @ 0x00000000bfc03008 { 0x0000000000200083 PWS}</div>
+                    <div class="output-line"> ...</div>
+                    <div class="output-line"> entry[511] = L2Entry @ 0x00000000bfc03ff8 { 0x000000003fe00083 PWS}</div>
+                    <div class="output-line">}</div>
+                    <div class="output-line">)</div>
+                    <div class="output-line">None</div>
+                </div>
+
+                <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                    <h4 style="color: #4ec9b0;">🎯 実行結果の解析</h4>
+                    
+                    <h5 style="color: #4ec9b0; margin-top: 20px;">1. PML4テーブル（レベル4）</h5>
+                    <ul>
+                        <li><strong>アドレス</strong>: <code>0xbfc01000</code> - CR3レジスタが指すアドレス</li>
+                        <li><strong>エントリ[0]</strong>: <code>0x00000000bfc02023</code> - 次のレベル（PDPT）を指す</li>
+                        <li><strong>フラグ</strong>: PWS = Present, Writable, Supervisor</li>
+                        <li><strong>管理範囲</strong>: 仮想アドレス空間の最初の512GB</li>
+                    </ul>
+
+                    <h5 style="color: #007acc; margin-top: 20px;">2. PDPTテーブル（レベル3）</h5>
+                    <ul>
+                        <li><strong>アドレス</strong>: <code>0xbfc02000</code> - PML4[0]が指すアドレス</li>
+                        <li><strong>エントリ数</strong>: 64個のエントリが有効（0-63）</li>
+                        <li><strong>管理範囲</strong>: 各エントリが1GBずつ、合計64GB分</li>
+                        <li><strong>特徴</strong>: 連続的なメモリ領域がマップされている</li>
+                    </ul>
+
+                    <h5 style="color: #f9c74f; margin-top: 20px;">3. PDテーブル（レベル2）</h5>
+                    <ul>
+                        <li><strong>アドレス</strong>: <code>0xbfc03000</code> - PDPT[0]が指すアドレス</li>
+                        <li><strong>エントリ数</strong>: 512個すべてのエントリが有効</li>
+                        <li><strong>ページサイズ</strong>: 2MBページを直接マップ（大きなページ）</li>
+                        <li><strong>物理アドレス</strong>: 0x0, 0x200000, 0x400000... と連続配置</li>
+                    </ul>
+
+                    <h5 style="color: #c586c0; margin-top: 20px;">4. 最終結果: None</h5>
+                    <ul>
+                        <li><strong>理由</strong>: PDレベルで2MBページとして直接マップされている</li>
+                        <li><strong>意味</strong>: PTレベル（4KBページ）は存在しない</li>
+                        <li><strong>効率性</strong>: 大きなページサイズでTLBミスを削減</li>
+                    </ul>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🔍 型安全性の実証</h3>
+                    <p>この実行結果は、実装した型安全なページテーブル構造が正しく動作していることを示しています。</p>
+                </div>
+
+                <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                    <h4 style="color: #f9c74f;">✅ 型安全性の証明</h4>
+                    <ul>
+                        <li><strong>コンパイル時チェック</strong>: 間違った型の組み合わせはコンパイルエラー</li>
+                        <li><strong>階層の保証</strong>: <code>PML4 → PDPT → PD</code>の順序が型で保証</li>
+                        <li><strong>安全なナビゲーション</strong>: <code>next_level()</code>で型安全にアクセス</li>
+                        <li><strong>エラーハンドリング</strong>: 存在しないエントリは<code>None</code>で安全に処理</li>
+                    </ul>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🎨 デバッグ出力の価値</h3>
+                    <p>従来のhexdumpと比較して、構造化されたデバッグ出力の価値を確認できます。</p>
+                </div>
+
+                <table class="comparison-table">
+                    <h4>🔍 デバッグ出力の比較</h4>
+                    <thead>
+                        <tr>
+                            <th>項目</th>
+                            <th>従来のhexdump</th>
+                            <th>新しい構造化出力</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>可読性</strong></td>
+                            <td>16進数の羅列</td>
+                            <td>構造化された階層表示</td>
+                        </tr>
+                        <tr>
+                            <td><strong>理解しやすさ</strong></td>
+                            <td>専門知識が必要</td>
+                            <td>直感的に理解可能</td>
+                        </tr>
+                        <tr>
+                            <td><strong>デバッグ効率</strong></td>
+                            <td>手動で解析が必要</td>
+                            <td>自動的に重要な情報を抽出</td>
+                        </tr>
+                        <tr>
+                            <td><strong>エラー発見</strong></td>
+                            <td>困難</td>
+                            <td>異常なエントリが目立つ</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎯 理解チェックポイント</div>
+                    <p>実際の実行結果から、実装した型安全なページテーブル構造の動作と価値を理解できましたか？</p>
+                </div>
+            </section>
+
+            <!-- セクション5: 学習の完結 -->
+            <section class="learning-section conclusion" id="section-conclusion">
+                <div class="section-header">
+                    <div class="section-icon">🎓</div>
+                    <div>
+                        <h2 class="section-title">学習の完結</h2>
+                        <p class="section-subtitle">技術的成果と今後の展望</p>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>🏆 実装で達成したこと</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin: 20px 0;">
+                        <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #4ec9b0; margin-bottom: 10px;">🔒 型安全性の向上</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>コンパイル時エラー検出</li>
+                                <li>間違った階層アクセスの防止</li>
+                                <li>型による構造の明確化</li>
+                            </ul>
+                        </div>
+                        <div style="background: rgba(249, 199, 79, 0.1); border: 2px solid #f9c74f; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #f9c74f; margin-bottom: 10px;">⚡ ゼロコスト抽象化</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>実行時オーバーヘッドなし</li>
+                                <li>PhantomDataによる型情報保持</li>
+                                <li>コンパイル時最適化</li>
+                            </ul>
+                        </div>
+                        <div style="background: rgba(0, 122, 204, 0.1); border: 2px solid #007acc; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #007acc; margin-bottom: 10px;">🔧 開発効率の向上</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>構造化されたデバッグ出力</li>
+                                <li>直感的なAPI設計</li>
+                                <li>エラーの早期発見</li>
+                            </ul>
+                        </div>
+                        <div style="background: rgba(197, 134, 192, 0.1); border: 2px solid #c586c0; border-radius: 8px; padding: 15px;">
+                            <h4 style="color: #c586c0; margin-bottom: 10px;">🚀 拡張性の確保</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li>新機能の追加が容易</li>
+                                <li>異なるページサイズへの対応</li>
+                                <li>将来のアーキテクチャ対応</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="code-explanation">
+                    <h3>📚 学習した技術要素</h3>
+                    <div style="background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 20px; margin: 20px 0;">
+                        <h4>🦀 Rust言語の高度な機能</h4>
+                        <ul>
+                            <li><strong>ジェネリック構造体</strong>: 型をパラメータとする構造体設計</li>
+                            <li><strong>定数ジェネリクス</strong>: 定数値をパラメータとする機能</li>
+                            <li><strong>PhantomData</strong>: ゼロコストでの型情報保持</li>
+                            <li><strong>トレイト制約</strong>: 型パラメータに対する制約指定</li>
+                            <li><strong>unsafe Rust</strong>: 低レベル操作での安全性管理</li>
+                        </ul>
+
+                        <h4 style="margin-top: 20px;">🏗️ システムプログラミング</h4>
+                        <ul>
+                            <li><strong>メモリレイアウト制御</strong>: <code>#[repr]</code>属性の活用</li>
+                            <li><strong>アライメント指定</strong>: ハードウェア要件への対応</li>
+                            <li><strong>ポインタ操作</strong>: 生ポインタの安全な使用</li>
+                            <li><strong>ビット操作</strong>: フラグ解析とマスク処理</li>
+                        </ul>
+
+                        <h4 style="margin-top: 20px;">🧠 OS開発の実践</h4>
+                        <ul>
+                            <li><strong>ページテーブル管理</strong>: x86_64アーキテクチャの理解</li>
+                            <li><strong>デバッグ技術</strong>: 効果的なデバッグ出力設計</li>
+                            <li><strong>型設計</strong>: ドメイン知識を型で表現</li>
+                            <li><strong>エラーハンドリング</strong>: 安全なエラー処理</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="next-steps">
+                    <h3>🚀 次のステップ</h3>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🔄 ページテーブル操作の実装</div>
+                        <p>新しいページテーブルエントリの作成、更新、削除機能を実装し、動的なメモリ管理を実現する</p>
+                        <small>推奨学習順序: 1番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🎯 仮想アドレス変換の実装</div>
+                        <p>仮想アドレスから物理アドレスへの完全な変換処理を実装し、MMUの動作を再現する</p>
+                        <small>推奨学習順序: 2番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">⚡ TLB管理の実装</div>
+                        <p>Translation Lookaside Bufferの管理とページテーブル変更時のフラッシュ処理を実装する</p>
+                        <small>推奨学習順序: 3番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🔥 ページフォルト処理</div>
+                        <p>ページフォルト例外の処理機構を実装し、オンデマンドページングやスワップ機能を実現する</p>
+                        <small>推奨学習順序: 4番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">🛡️ メモリ保護機能</div>
+                        <p>ページレベルでのアクセス制御（読み取り専用、実行禁止など）を実装する</p>
+                        <small>推奨学習順序: 5番目</small>
+                    </div>
+                    <div class="next-step-card">
+                        <div class="step-card-title">📦 ページアロケータ</div>
+                        <p>物理ページの動的割り当てと解放を管理するアロケータシステムを実装する</p>
+                        <small>推奨学習順序: 6番目</small>
+                    </div>
+                </div>
+
+                <div style="background: rgba(78, 201, 176, 0.1); border: 2px solid #4ec9b0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                    <h4 style="color: #4ec9b0;">🎯 実装のポイント</h4>
+                    <p>今回の実装で学んだ<strong>型安全な設計パターン</strong>は、他のシステムプログラミング分野でも応用できます：</p>
+                    <ul>
+                        <li><strong>ネットワークプロトコル</strong>: パケット構造の型安全な表現</li>
+                        <li><strong>ファイルシステム</strong>: ディスク構造の階層的表現</li>
+                        <li><strong>デバイスドライバ</strong>: ハードウェアレジスタの型安全なアクセス</li>
+                        <li><strong>暗号化ライブラリ</strong>: 暗号化状態の型による管理</li>
+                    </ul>
+                </div>
+
+                <div class="learning-checkpoint">
+                    <div class="checkpoint-title">🎉 最終チェックポイント</div>
+                    <p>Rustのジェネリック構造体を活用した型安全なページテーブル実装について、理論から実装、実際の動作まで一貫して理解できましたか？この知識を基に、より高度なシステムプログラミング技術について学習を進めましょう！</p>
+                    
+                    <div style="margin-top: 15px; padding: 15px; background: rgba(78, 201, 176, 0.1); border-radius: 8px;">
+                        <strong>🎯 理解度確認クイズ</strong><br>
+                        1. 定数ジェネリクスと型パラメータの違いは何ですか？<br>
+                        2. PhantomDataが必要な理由は何ですか？<br>
+                        3. implブロックで型パラメータを再宣言する理由は？<br>
+                        4. 型安全性がもたらす具体的なメリットは何ですか？<br>
+                        5. 実行結果でNoneが返された理由は何ですか？
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- フッター -->
+        <footer class="page-footer">
+            <p>🦀 WasabiOS - Rustジェネリック構造体によるページテーブル実装 の技術解説</p>
+            <p>実装ファイル: <code>src/x86.rs, src/main.rs</code></p>
+            <p>関連ページ: <a href="../memory-paging/index.html">CR3レジスタとページング機構</a></p>
+            <a href="../../index.html" class="back-to-index">📚 インデックスに戻る</a>
+        </footer>
+    </div>
+
+    <script src="../../assets/script.js"></script>
+    <script>
+        // 学習進捗の追跡
+        let currentSection = 0;
+        const sections = ['overview', 'generics', 'implementation', 'results', 'conclusion'];
+        
+        function updateLearningProgress() {
+            const progress = Math.round(((currentSection + 1) / sections.length) * 100);
+            // プログレスインジケーターがある場合の更新処理
+        }
+
+        // スクロール位置に基づく進捗更新
+        function handleScroll() {
+            const sectionElements = sections.map(id => document.getElementById(`section-${id}`));
+            const scrollPosition = window.scrollY + window.innerHeight / 2;
+            
+            for (let i = 0; i < sectionElements.length; i++) {
+                const section = sectionElements[i];
+                if (section && scrollPosition >= section.offsetTop && scrollPosition < section.offsetTop + section.offsetHeight) {
+                    if (currentSection !== i) {
+                        currentSection = i;
+                        updateLearningProgress();
+                    }
+                    break;
+                }
+            }
+        }
+
+        // スクロールイベントリスナー
+        window.addEventListener('scroll', handleScroll);
+        
+        // 初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            updateLearningProgress();
+            handleScroll();
+            
+            // 出力ハイライトのアニメーション
+            document.querySelectorAll('.output-highlight').forEach(element => {
+                element.addEventListener('mouseenter', function() {
+                    this.style.backgroundColor = 'rgba(249, 199, 79, 0.6)';
+                });
+                element.addEventListener('mouseleave', function() {
+                    this.style.backgroundColor = 'rgba(249, 199, 79, 0.3)';
+                });
+            });
+            
+            // 型階層のインタラクティブ機能
+            document.querySelectorAll('.type-level').forEach(level => {
+                level.addEventListener('click', function() {
+                    // 詳細説明の表示/非表示
+                    console.log('型レベルクリック:', this.textContent);
+                });
+            });
+        });
+
+        // コードブロックのシンタックスハイライト強化
+        document.querySelectorAll('.code-implementation pre code').forEach(block => {
+            block.addEventListener('click', function() {
+                // コードブロックの選択機能
+                const selection = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(this);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            });
+        });
+    </script>
+</body>
+</html>

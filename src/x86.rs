@@ -176,13 +176,13 @@ impl<const LEVEL: usize, const SHIFT: usize, NEXT> Entry<LEVEL, SHIFT, NEXT> {
     fn format(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "L()Entry @ {:#p} {{ {:#018x} {}{}{}",
+            "L{}Entry @ {:#p} {{ {:#018x} {}{}{}",
             LEVEL,
             self,
             self.read_value(),
-            if self.is_present() { "P" } else ( "N" ),
-            if self.is_writable() { "W" } else ( "R" ),
-            if self.is_user() { "U" } else ( "S" )
+            if self.is_present() { "P" } else { "N" },
+            if self.is_writable() { "W" } else { "R" },
+            if self.is_user() { "U" } else { "S" }
         )?;
         write!(f, "}}")
     }
@@ -226,7 +226,7 @@ impl<const LEVEL: usize, const SHIFT: usize, NEXT: core::fmt::Debug> Table<LEVEL
     }
 }
 impl<const LEVEL: usize, const SHIFT: usize, NEXT: fmt::Debug> fmt::Debug for Table<LEVEL, SHIFT, NEXT> {
-    fn fmt(&self, f: &fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.format(f)
     }
 }
